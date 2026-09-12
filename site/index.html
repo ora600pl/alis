@@ -6,19 +6,21 @@
   <meta name="description" content="Build Oracle AutoUpgrade configuration files in your browser. Guided decisions, versioned profiles, local imports and a live configuration preview.">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>AUGUR — AutoUpgrade Configuration Builder</title>
+  <title>AUGUR — AutoUpgrade Workbench</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/style.css">
   <script defer src="assets/profiles.js"></script>
   <script defer src="assets/core.js"></script>
+  <script defer src="assets/workflows.js"></script>
   <script defer src="assets/app.js"></script>
 </head>
 <body>
 <a class="skip" href="#workspace">Skip to configuration</a>
 <header class="topbar">
   <a class="brand" href="./" aria-label="AUGUR home"><span class="brand-mark">A</span><span>AUGUR<small>by ORA-600</small></span></a>
-  <span class="product-name">AutoUpgrade Configuration Builder</span>
+  <span class="product-name">AutoUpgrade Workbench</span>
   <nav class="top-actions" aria-label="Project actions">
+    <button id="guide-button" class="button quiet">Field guide</button>
     <button id="import-button" class="button quiet">Import file</button>
     <button id="save-project" class="button quiet">Save project</button>
     <a href="https://github.com/ora600pl/augur" class="github-link" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
@@ -34,18 +36,18 @@
   </aside>
   <main id="workspace" tabindex="-1">
     <div class="workspace-top"><div><span class="eyebrow" id="step-kicker">01 / PLAN</span><h1 id="step-title">Every good upgrade starts with a plan.</h1><p class="intro" id="step-intro">Choose your path. AUGUR will bring the right settings into focus.</p></div></div>
-    <div class="database-strip"><label for="active-job">Database</label><select id="active-job"></select><button id="add-job" class="small-button">+ Add</button><button id="remove-job" class="small-button">Remove</button><button id="new-project" class="small-button reset-project">New project</button></div>
+    <div class="database-strip"><label for="active-job">Entry</label><select id="active-job"></select><button id="add-job" class="small-button">+ Add</button><button id="remove-job" class="small-button">Remove</button><button id="new-project" class="small-button reset-project">New project</button></div>
     <div id="step-content"></div>
-    <div class="step-footer"><button id="previous" class="button quiet">← Back</button><span id="step-count">Step 1 of 6</span><button id="next" class="button primary">Database details →</button></div>
+    <div class="step-footer"><button id="previous" class="button quiet">← Back</button><span id="step-count">Step 1 of 8</span><button id="next" class="button primary">Database details →</button></div>
     <p class="product-footer">Independent tooling for Oracle DBAs. Not an Oracle product.</p>
   </main>
   <aside class="preview-panel" aria-label="Live configuration preview">
     <div class="preview-title"><div><span class="eyebrow">THE FILE YOU’RE BUILDING</span><h2 id="preview-filename">autoupgrade.cfg</h2></div><button id="copy-config" class="code-button">Copy</button></div>
     <div class="preview-tabs" role="group" aria-label="Preview view"><button id="view-config" class="active">Configuration</button><button id="view-diff">Changes</button></div>
     <pre id="config-preview" tabindex="0" aria-label="Generated configuration"></pre>
-    <div class="validation-summary"><div id="validation-status" role="status" aria-live="polite"></div><button id="review-issues" class="text-button">Review settings →</button><p>Static checks only. Run AutoUpgrade <code>analyze</code> on the database server.</p></div>
+    <div class="validation-summary"><div id="validation-status" role="status" aria-live="polite"></div><button id="review-issues" class="text-button">Review settings →</button><p>Static checks only. Follow the runbook for your chosen workflow.</p></div>
     <button id="download-config" class="button primary download-button">Download .cfg ↓</button>
-    <div class="command-box"><span>FIRST CHECK · POSIX SHELL</span><code id="analyze-command"></code><button id="copy-command" class="code-button">Copy command</button></div>
+    <div class="command-box"><span id="command-label">FIRST DATABASE CHECK</span><code id="analyze-command"></code><button id="copy-command" class="code-button">Copy command</button></div>
   </aside>
 </div>
 <input type="file" id="import-file" accept=".cfg,.conf,.txt,.json" hidden>

@@ -1,72 +1,82 @@
 # AUGUR
 
-**AutoUpgrade Configuration Builder · by ORA-600**
+**AutoUpgrade Workbench · by ORA-600**
 
-AutoUpgrade config, minus the guesswork.
+[Open AUGUR](https://ora600pl.github.io/augur/) · [Offline edition](https://ora600pl.github.io/augur/offline.html) · [Polski](README.pl.md) · [Workflow map](docs/WORKFLOWS.md)
 
-[Open AUGUR](https://ora600pl.github.io/augur/) · [Offline edition](https://ora600pl.github.io/augur/offline.html) · [Polski](README.pl.md)
+Build an Oracle AutoUpgrade configuration **and the instructions for using it**. AUGUR is a static browser application: no backend, account, analytics, external fonts, runtime packages or installation. Your configuration remains in browser memory; imports are read locally. Passwords are entered in AutoUpgrade on your server, never in the wizard.
 
-AUGUR is a static, browser-based wizard for Oracle AutoUpgrade configuration files. Choose a scenario, enter database settings, review the generated file, and download it. Configuration data stays in browser memory; imports are read locally. There is no backend, analytics, account, external font or runtime dependency.
+## Choose an outcome
 
-## What works
+- Install a fresh Oracle home on an empty server, without a source home or SID.
+- Prepare a home using an existing installation's settings.
+- Download database patches, numbered GI patches and tools, including media for other platforms.
+- Build a reusable Gold Image or install your own local image.
+- Upgrade a database or selected PDBs already in the target CDB.
+- Convert a non-CDB, unplug/plug PDBs, or clone a PDB/non-CDB once or with periodic refresh.
+- Patch existing databases, with RAC, Data Guard and operating-system planning guidance.
 
-- Guided database upgrade, non-CDB to PDB, unplug/plug, refreshable PDB and patching configurations.
-- Multiple database entries, global/local settings and per-PDB mappings.
-- Live configuration preview, static validation and POSIX command generation.
-- Import `.cfg` files while preserving comments, order and unknown settings; inspect a line diff.
-- Save and reopen an AUGUR JSON project without browser persistence.
-- Advanced parameter catalog, with unsupported and unverified settings identified.
-- A self-contained offline HTML edition. Download `offline.html`, then open it in a modern browser.
+Each of the **12 workflows** has a complete, editable example. The wizard includes a searchable reference for **132 distinct parameter names** (83 upgrade and 89 patch declarations), patch-expression controls, installation groups/binary options, global/local inheritance, PDB mappings and stage-specific hooks. Unsupported or unverified declarations are identified explicitly.
 
-The initial inspected profile is **AutoUpgrade 26.5.260807**, build 2026-08-07. It includes 83 upgrade declarations and 89 patch declarations, of which 81 and 89 respectively are present in the inspected registries. Four patch parameters are explicitly unsupported. A registry entry is not evidence that every environment-dependent combination has been tested.
+## What you get
 
-## Using the wizard
+1. An AutoUpgrade `.cfg`, with a live preview and static dependency checks.
+2. An ordered runbook: executable checks, directories, MOS keystore dialogue, media download, home creation, requested root scripts and the selected database stages.
+3. A separate source-side configuration for clone analyze/fixups, using the real source Oracle home.
+4. POSIX or PowerShell commands, with interactive console steps distinguished from shell commands. Recovery commands remain in a separate toolbox.
+5. A Markdown runbook containing the instructions and configuration files; a print/PDF layout; an editable AUGUR JSON project.
 
-1. Choose the scenario and AutoUpgrade mode.
-2. Enter the source SID, server Oracle homes and/or target version. Give the run an explicit global log directory.
-3. For migrations, configure the target CDB and the individual PDB mappings.
-4. Review recovery settings and any scripts or advanced parameters.
-5. Resolve errors in Review, inspect warnings, and download the configuration.
-6. Run the generated `analyze` command on the database server before deployment.
+Import an existing `.cfg` to preserve comments, order and unknown settings, and review a line diff. Mode and workflow are inferred because they are not stored in a config file: verify both after import. Use **Save project** to retain planning context and execution preferences as well as configuration values. Closing the page otherwise loses the draft.
 
-Save a project before closing or replacing the current draft. The site intentionally does not persist database configuration in localStorage. The hosting provider still receives ordinary page requests; see [GitHub Pages data collection](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages#data-collection).
+## Fresh-home example
 
-## Validation boundaries
+Select **Install a fresh Oracle Home** → enter target home, edition, Oracle base and inventory → choose media and download behavior → review **Runbook**. No SID or source home is required.
 
-AUGUR validates a conservative subset of the file syntax and selected semantic rules from the inspected build. It does not connect to Oracle, inspect Oracle homes, check patch availability, test upgrade compatibility between actual databases, verify topology, or guarantee recovery. **A successful static check is not a successful AutoUpgrade analyze.**
+```properties
+global.global_log_dir=/home/oracle/autoupgrade/logs
+global.keystore=/home/oracle/autoupgrade/keystore
+install1.folder=/home/oracle/autoupgrade/patches
+install1.target_home=/u01/app/oracle/product/dbhome_1
+install1.home_settings.oracle_base=/u01/app/oracle
+install1.home_settings.edition=EE
+install1.home_settings.inventory_location=/u01/app/oraInventory
+install1.download=YES
+install1.target_version=19
+install1.patch=RU,OPATCH,OCW
+```
 
-New JAR builds need reviewed profiles. The catalog is not generated from sample templates alone: their descriptions and examples can differ from the actual parser and validators. See [profile evidence and maintenance](docs/PROFILE.md) and the [initial validation record](docs/VALIDATION.md).
+The generated plan includes `-patch -load_password`, the MOS console dialogue, `-patch -mode download`, then `-patch -mode create_home`. Root scripts are conditional on the actual AutoUpgrade request. This installs software; it does not create a database. See the [workflow map](docs/WORKFLOWS.md) for offline media, image choices and cutover variants.
 
-Unknown imported keys are retained with a warning. Duplicates, malformed lines and unsupported values block configuration export. Fix duplicate/malformed source lines in your editor and import again. Advanced inputs outside the supported syntax may require editing the final file separately and checking it with AutoUpgrade. Do not put passwords in `.cfg` files or project JSON; use AutoUpgrade's keystore on the server.
+## Evidence and boundaries
 
-## Develop locally
+The inspected binary is **AutoUpgrade 26.5.260807**, built 2026-08-07. The investigation combined manifest/help/templates, parameter registries, selected validators and execution consumers, CFR decompilation, Oracle documentation, and articles by Mike Dietrich, Daniel Overby Hansen and Rodrigo Jorge. [Profile evidence and update procedure](docs/PROFILE.md).
 
-No `npm install`, pip packages or build framework are required. Python 3.9+ builds the data/offline artifacts; Node.js 24 runs the tests. Neither is required by site visitors.
+The implementation has **127 Node tests, 7 Python tests and 14 generated-file comparisons against the supplied JAR parser**. [Validation record](docs/VALIDATION.md).
+
+A green status means that AUGUR's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
+
+The page does not store projects in browser storage. Ordinary page requests still reach the hosting provider; see [GitHub Pages data collection](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages#data-collection).
+
+## Develop and maintain
+
+Python 3.9+ builds the profiles/offline HTML using only the standard library. Node.js 24 runs built-in tests. Neither is required by visitors. No npm or pip installation is needed.
 
 ```sh
 python3 -S tools/build.py
 python3 -m http.server 8000 --bind 127.0.0.1 --directory site
-```
-
-Open [the local site](http://127.0.0.1:8000).
-
-```sh
-node --test tests/core.test.cjs
+node --test tests/*.test.cjs
 python3 -S -m unittest discover -s tests -p '*_test.py'
 node --check site/assets/app.js
+node --check site/assets/core.js
+node --check site/assets/workflows.js
 ```
 
-`site/assets/profiles.js` and `site/offline.html` are generated, tracked artifacts. Edit the JSON profile and source files, then rebuild. GitHub Actions runs tests and checks reproducibility before deploying `site/` to Pages. Configure the Pages publishing source as **GitHub Actions**.
+Optional parser comparison (requires a separately obtained Oracle JAR and a JDK):
 
-## Repository layout
-
-```text
-profiles/        Reviewed version-specific metadata
-site/            Static website and generated offline edition
-site/assets/     UI, pure configuration logic, styles and generated data
-tools/           Python standard-library build and JAR inspection tools
-tests/           Node built-in tests and Python unittest checks
-docs/            Evidence, profile maintenance and validation records
+```sh
+python3 -S tools/verify_parser.py /path/to/autoupgrade.jar
 ```
 
-Independent community tooling. Not affiliated with or endorsed by Oracle. Oracle AutoUpgrade binaries and decompiled Oracle code are not distributed in this repository. The MIT license covers AUGUR's original code and documentation.
+`profiles/` holds reviewed metadata; `site/assets/core.js` handles configuration and validation; `workflows.js` builds runbooks; `app.js` renders the UI. `site/assets/profiles.js` and `site/offline.html` are generated and tracked. CI tests and verifies reproducibility before publishing `site/` through GitHub Pages Actions. New JAR builds need a reviewed profile and regression cases, not an automatic replacement of option names.
+
+Independent community tooling, not affiliated with or endorsed by Oracle. Oracle binaries and decompiled Oracle code are not distributed here. MIT covers AUGUR's original code and documentation.

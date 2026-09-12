@@ -18,7 +18,7 @@ class StaticBuildTests(unittest.TestCase):
 
     def test_offline_scripts_have_matching_csp_hashes(self):
         scripts = re.findall(r"<script>(.*?)</script>", self.offline, re.S)
-        self.assertEqual(len(scripts), 3)
+        self.assertEqual(len(scripts), 4)
         for script in scripts:
             digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
             self.assertTrue("'sha256-" + digest + "'" in self.offline, "CSP script hash mismatch: " + digest)
@@ -33,7 +33,7 @@ class StaticBuildTests(unittest.TestCase):
         self.assertLess(self.offline.index('id="step-content"'), self.offline.index('<script>'))
 
     def test_no_network_apis_or_browser_persistence(self):
-        sources = '\n'.join((ROOT / "site/assets" / name).read_text() for name in ("app.js", "core.js"))
+        sources = '\n'.join((ROOT / "site/assets" / name).read_text() for name in ("app.js", "core.js", "workflows.js"))
         self.assertNotRegex(sources, r'\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|localStorage|sessionStorage)\s*[.(]')
         self.assertIn("connect-src 'none'", (ROOT / "site/index.html").read_text())
 

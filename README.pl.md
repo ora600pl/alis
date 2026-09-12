@@ -1,17 +1,47 @@
-# AUGUR — kreator konfiguracji AutoUpgrade
+# AUGUR
 
-[Otwórz kreator](https://ora600pl.github.io/augur/) · [Wersja offline](https://ora600pl.github.io/augur/offline.html) · [English](README.md)
+**AutoUpgrade Workbench · by ORA-600**
 
-AUGUR prowadzi przez przygotowanie pliku `.cfg` dla Oracle AutoUpgrade. Interfejs jest po angielsku. Obsługuje upgrade, non-CDB → PDB, unplug/plug, refreshable PDB oraz patching, wiele baz, parametry globalne/lokalne i mapowanie PDB.
+[Otwórz kreator](https://ora600pl.github.io/augur/) · [Wersja offline](https://ora600pl.github.io/augur/offline.html) · [English](README.md) · [Mapa zastosowań](docs/WORKFLOWS.md)
 
-Wybierz scenariusz, wprowadź dane bazy, sprawdź ustawienia odtwarzania i pobierz konfigurację. Podgląd pliku aktualizuje się na bieżąco. Zakładka Review pokazuje błędy i ostrzeżenia. Polecenia są przygotowane dla powłoki POSIX; strona ich nie wykonuje.
+AUGUR przygotowuje konfigurację Oracle AutoUpgrade oraz instrukcję wykonania operacji krok po kroku. Działa w przeglądarce, bez instalacji pakietów i bez backendu. Konfiguracja pozostaje w pamięci karty. Hasła MOS i walletów wpisuje się dopiero w AutoUpgrade na serwerze.
 
-Możesz importować istniejący `.cfg`, obejrzeć różnice oraz zapisać szkic jako JSON. Komentarze, kolejność i nieznane ustawienia importowanego dokumentu są zachowywane. Duplikaty i nieczytelne linie trzeba poprawić w pliku źródłowym i zaimportować ponownie.
+## Co można przygotować
 
-Konfiguracja pozostaje w pamięci przeglądarki, bez wysyłania jej na serwer i bez zapisu do localStorage. Zapisz projekt przed zamknięciem strony. Hosting otrzymuje zwykłe żądania pobrania strony; nie należy utożsamiać lokalnego przetwarzania danych z brakiem logów dostępu GitHuba.
+- Świeży Oracle Home na pustym serwerze, bez SID i bez `source_home`.
+- Nowy home z ustawieniami odziedziczonymi z istniejącej instalacji.
+- Pobranie patchy bazy, patchy GI wskazanych numerami i narzędzi, również dla innej platformy.
+- Własny Gold Image lub instalację z gotowego lokalnego ZIP-a.
+- Upgrade bazy lub wybranych PDB znajdujących się już w docelowym CDB.
+- Konwersję non-CDB, unplug/plug oraz klonowanie PDB lub non-CDB: jednorazowe albo z cyklicznym odświeżaniem.
+- Patching istniejących baz z ustawieniami i wskazówkami dotyczącymi RAC, Data Guard oraz systemu operacyjnego.
 
-Wersję offline pobierz jako `offline.html` i otwórz w przeglądarce. Zawiera kod, style i profile w jednym pliku.
+Każda z **12 ścieżek** ma przykład do wczytania i edycji. Wbudowany **Field guide** zawiera poradniki, wyszukiwarkę wszystkich **132 odrębnych nazw parametrów** oraz katalog opcji CLI. Parametry odrzucone lub niezweryfikowane w tym wydaniu są oznaczone.
 
-Pierwszy profil dotyczy dokładnie **26.5.260807**. Pomyślna walidacja statyczna nie oznacza, że baza jest gotowa do upgrade. Strona nie sprawdza Oracle Homes, stanu bazy, dostępności patchy ani odtwarzania. Wykonaj `analyze` narzędziem AutoUpgrade na serwerze Oracle. Hasła obsługuje jego keystore, nie plik konfiguracyjny ani JSON projektu.
+## Jak używać
 
-Kod strony używa HTML/CSS/JavaScript bez bibliotek zewnętrznych. Narzędzia utrzymaniowe używają Pythona 3.9+ i wyłącznie biblioteki standardowej. Testy logiki uruchamia Node.js 24. Instrukcje uruchomienia i struktura projektu są w [README](README.md), a procedura aktualizacji profili w [PROFILE.md](docs/PROFILE.md).
+1. W **Plan** wybierz cel i tryb wykonania. Możesz wczytać przykład przyciskiem **Load example for this workflow**.
+2. Uzupełnij home/bazę, media, mapowania migracji i kontekst środowiska.
+3. Przejrzyj ustawienia odzyskiwania oraz opcje dodatkowe.
+4. W **Runbook** popraw błędy i przeczytaj uwagi. Pobierz `.cfg` oraz instrukcję Markdown, skopiuj pojedyncze komendy lub użyj widoku do druku/PDF.
+5. Dla klonowania pobierz również osobną konfigurację źródła do analyze/fixups. Ścieżka rzeczywistego home'a źródła może różnić się od wpisu używanego na serwerze docelowym.
+
+Przykład świeżej instalacji znajduje się w [angielskim README](README.md#fresh-home-example). Kreator prowadzi przez katalogi robocze, `-load_password`, dialog MOS, pobranie mediów, `create_home` i warunkowe skrypty roota. Jednorazowy klon ma fixupy przed kopiowaniem; klon cykliczny otrzymuje osobny etap końcowego odświeżenia i `proceed -job`.
+
+Wyniki obejmują konfiguracje, komendy POSIX/PowerShell, kroki w konsoli AutoUpgrade, instrukcje ręczne i odsyłacze do źródeł. Narzędzia odzyskiwania są pokazane osobno od zwykłej kolejności wykonania.
+
+**Save project** zapisuje JSON pozwalający wrócić do pracy wraz z kontekstem środowiska. Sama konfiguracja `.cfg` nie przechowuje wybranego trybu ani tych preferencji; przy imporcie kreator je wnioskuje i trzeba je sprawdzić. Import zachowuje komentarze, kolejność i nieznane opcje, a widok **Changes** pokazuje różnice. Strona nie zapisuje projektu w localStorage.
+
+## Na czym opiera się walidacja
+
+Profil: **AutoUpgrade 26.5.260807**, build 2026-08-07. Zbadano rejestry parametrów, wybrane walidatory i przebiegi, wykorzystując dekompilację CFR, dokumentację Oracle oraz przykłady Mike'a Dietricha, Daniela Overby Hansena i Rodrigo Jorge. Szczegóły: [metodologia](docs/PROFILE.md), [mapa przebiegów](docs/WORKFLOWS.md), [wyniki sprawdzeń](docs/VALIDATION.md).
+
+Przeszło **127 testów Node, 7 testów Python oraz 14 porównań wygenerowanych plików z parserem dostarczonego JAR-a**. To nie jest dowód wykonania instalacji ani migracji na Oracle: nie uruchamiano połączeń z bazą, pobierania MOS, instalatora, analyze, fixups ani deploy. Kreator nie zna rzeczywistej topologii, dostępności patchy, uprawnień MOS, zawartości walleta ani warunków odzyskania. Zielony status oznacza przejście zaimplementowanych kontroli statycznych.
+
+Katalog obejmuje deklarowane publiczne parametry; wszystkie kombinacje środowiskowe nie zostały przetestowane. Nieznane opcje są zachowywane z ostrzeżeniem. Zduplikowane, błędne i jawnie niewspierane wpisy blokują eksport `.cfg`.
+
+## Rozwój
+
+Budowanie używa wyłącznie standardowej biblioteki Python 3; testy JavaScript korzystają z Node bez dodatkowych pakietów. Komendy deweloperskie i aktualizację profili opisuje [README](README.md#develop-and-maintain). W repozytorium nie ma binariów Oracle ani zdekompilowanego kodu Oracle.
+
+Niezależne narzędzie społecznościowe, nie produkt Oracle. Licencja MIT obejmuje własny kod i dokumentację AUGUR.

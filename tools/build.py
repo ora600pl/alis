@@ -28,7 +28,7 @@ def build():
     style = (ROOT / "site/assets/style.css").read_text()
     text = text.replace('<link rel="stylesheet" href="assets/style.css">', '<style>' + style + '</style>')
     script_hashes = []
-    for name in ("profiles.js", "core.js", "app.js"):
+    for name in ("profiles.js", "core.js", "workflows.js", "app.js"):
         code = (ROOT / "site/assets" / name).read_text()
         code = re.sub(r"</script", r"<\\/script", code, flags=re.I)
         digest = base64.b64encode(hashlib.sha256(code.encode()).digest()).decode()
