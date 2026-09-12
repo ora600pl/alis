@@ -1,0 +1,1741 @@
+{
+  "id": "26.5.260807",
+  "buildDate": "2026-08-07",
+  "reviewedDate": "2026-09-12",
+  "jarSha256": "b02dfaa76767abcacd4fb61ea807129811c4a86070453bd7f390c8f0386ef512",
+  "evidence": "JAR registry, selected validators and isolated parser probes; no live database validation.",
+  "targetVersions": [
+    "12.2",
+    "18",
+    "19",
+    "21",
+    "23",
+    "26"
+  ],
+  "operations": {
+    "upgrade": [
+      {
+        "name": "global_log_dir",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:10"
+      },
+      {
+        "name": "autoupg_log_dir",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:11"
+      },
+      {
+        "name": "keystore",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:12"
+      },
+      {
+        "name": "json_progress_writing_interval",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": "30",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:13"
+      },
+      {
+        "name": "sid",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:14"
+      },
+      {
+        "name": "source_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:15"
+      },
+      {
+        "name": "log_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:16"
+      },
+      {
+        "name": "start_time",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NOW",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:17"
+      },
+      {
+        "name": "checklist",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:18"
+      },
+      {
+        "name": "source_tns_admin_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:19"
+      },
+      {
+        "name": "source_ldap_admin_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "declared",
+        "source": "oracle/commons/config/CommonConfigParameters.java:20"
+      },
+      {
+        "name": "run_utlrp",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:21"
+      },
+      {
+        "name": "env",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:22"
+      },
+      {
+        "name": "revert_before_action",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:23"
+      },
+      {
+        "name": "revert_after_action",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:24"
+      },
+      {
+        "name": "create_listener",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:25"
+      },
+      {
+        "name": "emcli_path",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:26"
+      },
+      {
+        "name": "em_target_name",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:27"
+      },
+      {
+        "name": "em_blackout_suffix",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:28"
+      },
+      {
+        "name": "timezone_upg",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:29"
+      },
+      {
+        "name": "download",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:30"
+      },
+      {
+        "name": "patch",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "RECOMMENDED",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:31"
+      },
+      {
+        "name": "parallel_stats_degree",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:32"
+      },
+      {
+        "name": "rac_rolling",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "DISABLED",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:33"
+      },
+      {
+        "name": "drain_timeout",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:34"
+      },
+      {
+        "name": "datapatch_terminate_blocking_sessions",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:35"
+      },
+      {
+        "name": "target_home",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:36"
+      },
+      {
+        "name": "source_base",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:37"
+      },
+      {
+        "name": "restoration",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:38"
+      },
+      {
+        "name": "dictionary_stats_before",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:39"
+      },
+      {
+        "name": "dictionary_stats_after",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:40"
+      },
+      {
+        "name": "fixed_stats_before",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:41"
+      },
+      {
+        "name": "rman_catalog_connect_string",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:42"
+      },
+      {
+        "name": "wincredential",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:43"
+      },
+      {
+        "name": "delete_wincredential_file",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:44"
+      },
+      {
+        "name": "before_action",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:45"
+      },
+      {
+        "name": "after_action",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:46"
+      },
+      {
+        "name": "upgradexml",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:14"
+      },
+      {
+        "name": "upgrade_node",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "localhost",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:15"
+      },
+      {
+        "name": "tune_setting",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:16"
+      },
+      {
+        "name": "pdbs",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:17"
+      },
+      {
+        "name": "exclusion_list",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:18"
+      },
+      {
+        "name": "target_tns_admin_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:19"
+      },
+      {
+        "name": "target_ldap_admin_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "declared",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:20"
+      },
+      {
+        "name": "target_cdb",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:21"
+      },
+      {
+        "name": "target_pdb_name",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:22"
+      },
+      {
+        "name": "target_pdb_copy_option",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:23"
+      },
+      {
+        "name": "target_is_remote",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:24"
+      },
+      {
+        "name": "keep_source_pdb",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:25"
+      },
+      {
+        "name": "source_dblink",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:26"
+      },
+      {
+        "name": "drop_dblink",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:27"
+      },
+      {
+        "name": "close_source",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:28"
+      },
+      {
+        "name": "parallel_pdb_creation_clause",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": "0",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:29"
+      },
+      {
+        "name": "drop_win_src_service",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:30"
+      },
+      {
+        "name": "manage_standbys_clause",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:31"
+      },
+      {
+        "name": "remove_rac_config",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:32"
+      },
+      {
+        "name": "config_source_rac",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "REMOVE",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:33"
+      },
+      {
+        "name": "ignore_errors",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:34"
+      },
+      {
+        "name": "run_dictionary_health",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:35"
+      },
+      {
+        "name": "keep_pdb_save_state",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:36"
+      },
+      {
+        "name": "skip_tde_key_import",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:37"
+      },
+      {
+        "name": "target_cdbroot_dblink",
+        "scope": "local",
+        "nested": true,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:38"
+      },
+      {
+        "name": "folder",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:39"
+      },
+      {
+        "name": "download_folder",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:40"
+      },
+      {
+        "name": "create_oracle_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:41"
+      },
+      {
+        "name": "target_edition",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "EE",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:42"
+      },
+      {
+        "name": "target_version",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:43"
+      },
+      {
+        "name": "target_base",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:44"
+      },
+      {
+        "name": "remove_underscore_parameters",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:45"
+      },
+      {
+        "name": "raise_compatible",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "compatible",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:46"
+      },
+      {
+        "name": "drop_grp_after_upgrade",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:47"
+      },
+      {
+        "name": "enable_local_undo",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:48"
+      },
+      {
+        "name": "catctl_options",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:49"
+      },
+      {
+        "name": "replay",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:50"
+      },
+      {
+        "name": "defer_standby_log_shipping",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:51"
+      },
+      {
+        "name": "stop_redo_apply",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:52"
+      },
+      {
+        "name": "manage_network_files",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "FULL",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:53"
+      },
+      {
+        "name": "patch_in_upgrade_mode",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:54"
+      },
+      {
+        "name": "export_rman_backup_for_noncdb_to_pdb",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:55"
+      },
+      {
+        "name": "del_during_upgrade_pfile",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:56"
+      },
+      {
+        "name": "add_during_upgrade_pfile",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:57"
+      },
+      {
+        "name": "del_after_upgrade_pfile",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:58"
+      },
+      {
+        "name": "add_after_upgrade_pfile",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/upgrade/autoupgrade/config/UpgradeConfigParameters.java:59"
+      }
+    ],
+    "patch": [
+      {
+        "name": "global_log_dir",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:10"
+      },
+      {
+        "name": "autoupg_log_dir",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:11"
+      },
+      {
+        "name": "keystore",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:12"
+      },
+      {
+        "name": "json_progress_writing_interval",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": "30",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:13"
+      },
+      {
+        "name": "sid",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:14"
+      },
+      {
+        "name": "source_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:15"
+      },
+      {
+        "name": "log_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:16"
+      },
+      {
+        "name": "start_time",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NOW",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:17"
+      },
+      {
+        "name": "checklist",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:18"
+      },
+      {
+        "name": "source_tns_admin_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:19"
+      },
+      {
+        "name": "source_ldap_admin_dir",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:20"
+      },
+      {
+        "name": "run_utlrp",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:21"
+      },
+      {
+        "name": "env",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:22"
+      },
+      {
+        "name": "revert_before_action",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:23"
+      },
+      {
+        "name": "revert_after_action",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:24"
+      },
+      {
+        "name": "create_listener",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:25"
+      },
+      {
+        "name": "emcli_path",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:26"
+      },
+      {
+        "name": "em_target_name",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:27"
+      },
+      {
+        "name": "em_blackout_suffix",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:28"
+      },
+      {
+        "name": "timezone_upg",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:29"
+      },
+      {
+        "name": "download",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:30"
+      },
+      {
+        "name": "patch",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "RECOMMENDED",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:31"
+      },
+      {
+        "name": "parallel_stats_degree",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:32"
+      },
+      {
+        "name": "rac_rolling",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "DISABLED",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:33"
+      },
+      {
+        "name": "drain_timeout",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:34"
+      },
+      {
+        "name": "datapatch_terminate_blocking_sessions",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:35"
+      },
+      {
+        "name": "target_home",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:36"
+      },
+      {
+        "name": "source_base",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:37"
+      },
+      {
+        "name": "restoration",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:38"
+      },
+      {
+        "name": "dictionary_stats_before",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:39"
+      },
+      {
+        "name": "dictionary_stats_after",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:40"
+      },
+      {
+        "name": "fixed_stats_before",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:41"
+      },
+      {
+        "name": "rman_catalog_connect_string",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:42"
+      },
+      {
+        "name": "wincredential",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:43"
+      },
+      {
+        "name": "delete_wincredential_file",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:44"
+      },
+      {
+        "name": "before_action",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:45"
+      },
+      {
+        "name": "after_action",
+        "scope": "both",
+        "nested": false,
+        "inherit": false,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/commons/config/CommonConfigParameters.java:46"
+      },
+      {
+        "name": "patch_json",
+        "scope": "global",
+        "nested": false,
+        "inherit": true,
+        "default": "YES",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:44"
+      },
+      {
+        "name": "folder",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:45"
+      },
+      {
+        "name": "download_folder",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:46"
+      },
+      {
+        "name": "patch_node",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "localhost",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:47"
+      },
+      {
+        "name": "ignore_conflicts",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "unsupported",
+        "source": "oracle/patch/config/PatchConfigParameters.java:48"
+      },
+      {
+        "name": "target_version",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:49"
+      },
+      {
+        "name": "db_availability",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "OFFLINE",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:50"
+      },
+      {
+        "name": "method",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "OUTOFPLACE",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:51"
+      },
+      {
+        "name": "create_gold_image",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:52"
+      },
+      {
+        "name": "platform",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:53"
+      },
+      {
+        "name": "proxy-server",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "unsupported",
+        "source": "oracle/patch/config/PatchConfigParameters.java:54"
+      },
+      {
+        "name": "ssh-server",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "unsupported",
+        "source": "oracle/patch/config/PatchConfigParameters.java:55"
+      },
+      {
+        "name": "drop_grp_after_patching",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:56"
+      },
+      {
+        "name": "datapatch_options",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "unsupported",
+        "source": "oracle/patch/config/PatchConfigParameters.java:57"
+      },
+      {
+        "name": "before_action.deploy",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:58"
+      },
+      {
+        "name": "before_action.create_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:59"
+      },
+      {
+        "name": "after_action.deploy",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:60"
+      },
+      {
+        "name": "after_action.create_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:61"
+      },
+      {
+        "name": "revert_before_action.deploy",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:62"
+      },
+      {
+        "name": "revert_before_action.create_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:63"
+      },
+      {
+        "name": "revert_after_action.deploy",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:64"
+      },
+      {
+        "name": "revert_after_action.create_home",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:65"
+      },
+      {
+        "name": "gold_image",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": "AUTO",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:66"
+      },
+      {
+        "name": "gold_image.security_patch_level",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:67"
+      },
+      {
+        "name": "home_settings.binopt.asm",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:68"
+      },
+      {
+        "name": "home_settings.binopt.dm",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:69"
+      },
+      {
+        "name": "home_settings.binopt.jox",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:70"
+      },
+      {
+        "name": "home_settings.binopt.olap",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:71"
+      },
+      {
+        "name": "home_settings.binopt.part",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:72"
+      },
+      {
+        "name": "home_settings.binopt.rac",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:73"
+      },
+      {
+        "name": "home_settings.binopt.rat",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:74"
+      },
+      {
+        "name": "home_settings.binopt.sdo",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:75"
+      },
+      {
+        "name": "home_settings.binopt.uniaud",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:76"
+      },
+      {
+        "name": "home_settings.binopt.dnfs",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:77"
+      },
+      {
+        "name": "home_settings.cluster_nodes",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:78"
+      },
+      {
+        "name": "home_settings.ignore_opatch_conflict",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "ERROR",
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:79"
+      },
+      {
+        "name": "home_settings.ignore_prereq_failure",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": "NO",
+        "type": "boolean",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:80"
+      },
+      {
+        "name": "home_settings.inventory_location",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:81"
+      },
+      {
+        "name": "home_settings.inventory_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:82"
+      },
+      {
+        "name": "home_settings.osdba_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:83"
+      },
+      {
+        "name": "home_settings.osoper_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:84"
+      },
+      {
+        "name": "home_settings.osbackupdba_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:85"
+      },
+      {
+        "name": "home_settings.osdgdba_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:86"
+      },
+      {
+        "name": "home_settings.oskmdba_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:87"
+      },
+      {
+        "name": "home_settings.osracdba_group",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:88"
+      },
+      {
+        "name": "home_settings.read_only",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:89"
+      },
+      {
+        "name": "home_settings.ru_apply",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:90"
+      },
+      {
+        "name": "home_settings.oracle_base",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:91"
+      },
+      {
+        "name": "home_settings.home_name",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:92"
+      },
+      {
+        "name": "home_settings.edition",
+        "scope": "both",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:93"
+      },
+      {
+        "name": "home_settings.account_type",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:94"
+      },
+      {
+        "name": "home_settings.ora_lpenable",
+        "scope": "local",
+        "nested": false,
+        "inherit": true,
+        "default": null,
+        "type": "text",
+        "status": "available",
+        "source": "oracle/patch/config/PatchConfigParameters.java:95"
+      }
+    ]
+  }
+}
