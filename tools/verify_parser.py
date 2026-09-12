@@ -33,7 +33,7 @@ def main():
     args = parser.parse_args()
     jar = args.jar.resolve(strict=True)
     cases = json.loads(subprocess.check_output(['node', '-e', GENERATOR], cwd=ROOT, text=True))
-    with tempfile.TemporaryDirectory(prefix='augur-parser-') as temp:
+    with tempfile.TemporaryDirectory(prefix='alis-parser-') as temp:
         work = Path(temp)
         subprocess.run(['javac', '-cp', str(jar), '-d', temp, str(ROOT / 'tools/ParserProbe.java')], check=True)
         for case in cases:

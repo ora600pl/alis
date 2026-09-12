@@ -1,4 +1,4 @@
-name: Test and publish AUGUR
+name: Test and publish ALIS
 on:
   push:
     branches: [main]

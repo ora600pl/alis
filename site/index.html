@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Build Oracle AutoUpgrade configuration files in your browser. Guided decisions, versioned profiles, local imports and a live configuration preview.">
+  <meta name="description" content="ALIS — AutoUpgrade Looks Insanely Simple. Build Oracle AutoUpgrade configurations and step-by-step runbooks in your browser. No installation required.">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>AUGUR — AutoUpgrade Workbench</title>
+  <title>ALIS — AutoUpgrade Looks Insanely Simple</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/style.css">
   <script defer src="assets/profiles.js"></script>
@@ -17,13 +17,13 @@
 <body>
 <a class="skip" href="#workspace">Skip to configuration</a>
 <header class="topbar">
-  <a class="brand" href="./" aria-label="AUGUR home"><span class="brand-mark">A</span><span>AUGUR<small>by ORA-600</small></span></a>
-  <span class="product-name">AutoUpgrade Workbench</span>
+  <a class="brand" href="./" aria-label="ALIS home"><span class="brand-mark">A</span><span>ALIS<small>by ORA-600</small></span></a>
+  <span class="product-name">AutoUpgrade Looks Insanely Simple</span>
   <nav class="top-actions" aria-label="Project actions">
     <button id="guide-button" class="button quiet">Field guide</button>
     <button id="import-button" class="button quiet">Import file</button>
     <button id="save-project" class="button quiet">Save project</button>
-    <a href="https://github.com/ora600pl/augur" class="github-link" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+    <a href="https://github.com/ora600pl/alis" class="github-link" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
   </nav>
 </header>
 <div class="app-shell">
@@ -32,10 +32,10 @@
     <nav id="step-nav"></nav>
     <div class="profile-info"><span class="eyebrow">AUTOUPGRADE PROFILE</span><strong id="profile-name">26.5.260807</strong><span id="profile-reviewed">Inspected 12 Sep 2026</span><button id="profile-details" class="text-button">About this profile ↗</button></div>
     <div class="privacy-note"><span class="privacy-symbol" aria-hidden="true">◈</span><strong>Your configuration stays here.</strong><p>Files and settings are processed in your browser. No uploads. No account needed.</p></div>
-    <a class="offline-link" id="offline-download" href="offline.html" download="augur-offline.html">Download offline edition ↓</a>
+    <a class="offline-link" id="offline-download" href="offline.html" download="alis-offline.html">Download offline edition ↓</a>
   </aside>
   <main id="workspace" tabindex="-1">
-    <div class="workspace-top"><div><span class="eyebrow" id="step-kicker">01 / PLAN</span><h1 id="step-title">Every good upgrade starts with a plan.</h1><p class="intro" id="step-intro">Choose your path. AUGUR will bring the right settings into focus.</p></div></div>
+    <div class="workspace-top"><div><span class="eyebrow" id="step-kicker">01 / PLAN</span><h1 id="step-title">Every good upgrade starts with a plan.</h1><p class="intro" id="step-intro">Choose your path. ALIS will bring the right settings into focus.</p></div></div>
     <div class="database-strip"><label for="active-job">Entry</label><select id="active-job"></select><button id="add-job" class="small-button">+ Add</button><button id="remove-job" class="small-button">Remove</button><button id="new-project" class="small-button reset-project">New project</button></div>
     <div id="step-content"></div>
     <div class="step-footer"><button id="previous" class="button quiet">← Back</button><span id="step-count">Step 1 of 8</span><button id="next" class="button primary">Database details →</button></div>
@@ -53,6 +53,6 @@
 <input type="file" id="import-file" accept=".cfg,.conf,.txt,.json" hidden>
 <dialog id="modal"><div class="modal-top"><h2 id="modal-title"></h2><button id="close-modal" class="small-button" aria-label="Close dialog">✕</button></div><div id="modal-body"></div></dialog>
 <div id="toast" role="status" aria-live="polite" hidden></div>
-<noscript><p class="noscript">Enable JavaScript to use AUGUR. Configuration processing takes place entirely in your browser.</p></noscript>
+<noscript><p class="noscript">Enable JavaScript to use ALIS. Configuration processing takes place entirely in your browser.</p></noscript>
 </body>
 </html>

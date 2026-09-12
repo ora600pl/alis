@@ -1,10 +1,10 @@
-# AUGUR
+# ALIS
 
-**AutoUpgrade Workbench · by ORA-600**
+**AutoUpgrade Looks Insanely Simple · by ORA-600**
 
-[Open AUGUR](https://ora600pl.github.io/augur/) · [Offline edition](https://ora600pl.github.io/augur/offline.html) · [Polski](README.pl.md) · [Workflow map](docs/WORKFLOWS.md)
+[Open ALIS](https://ora600pl.github.io/alis/) · [Offline edition](https://ora600pl.github.io/alis/offline.html) · [Polski](README.pl.md) · [Workflow map](docs/WORKFLOWS.md)
 
-Build an Oracle AutoUpgrade configuration **and the instructions for using it**. AUGUR is a static browser application: no backend, account, analytics, external fonts, runtime packages or installation. Your configuration remains in browser memory; imports are read locally. Passwords are entered in AutoUpgrade on your server, never in the wizard.
+Build an Oracle AutoUpgrade configuration **and the instructions for using it**. ALIS is a static browser application: no backend, account, analytics, external fonts, runtime packages or installation. Your configuration remains in browser memory; imports are read locally. Passwords are entered in AutoUpgrade on your server, never in the wizard.
 
 ## Choose an outcome
 
@@ -24,7 +24,7 @@ Each of the **12 workflows** has a complete, editable example. The wizard includ
 2. An ordered runbook: executable checks, directories, MOS keystore dialogue, media download, home creation, requested root scripts and the selected database stages.
 3. A separate source-side configuration for clone analyze/fixups, using the real source Oracle home.
 4. POSIX or PowerShell commands, with interactive console steps distinguished from shell commands. Recovery commands remain in a separate toolbox.
-5. A Markdown runbook containing the instructions and configuration files; a print/PDF layout; an editable AUGUR JSON project.
+5. A Markdown runbook containing the instructions and configuration files; a print/PDF layout; an editable ALIS JSON project.
 
 Import an existing `.cfg` to preserve comments, order and unknown settings, and review a line diff. Mode and workflow are inferred because they are not stored in a config file: verify both after import. Use **Save project** to retain planning context and execution preferences as well as configuration values. Closing the page otherwise loses the draft.
 
@@ -53,7 +53,7 @@ The inspected binary is **AutoUpgrade 26.5.260807**, built 2026-08-07. The inves
 
 The implementation has **127 Node tests, 7 Python tests and 14 generated-file comparisons against the supplied JAR parser**. [Validation record](docs/VALIDATION.md).
 
-A green status means that AUGUR's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
+A green status means that ALIS's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
 
 The page does not store projects in browser storage. Ordinary page requests still reach the hosting provider; see [GitHub Pages data collection](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages#data-collection).
 
@@ -79,4 +79,4 @@ python3 -S tools/verify_parser.py /path/to/autoupgrade.jar
 
 `profiles/` holds reviewed metadata; `site/assets/core.js` handles configuration and validation; `workflows.js` builds runbooks; `app.js` renders the UI. `site/assets/profiles.js` and `site/offline.html` are generated and tracked. CI tests and verifies reproducibility before publishing `site/` through GitHub Pages Actions. New JAR builds need a reviewed profile and regression cases, not an automatic replacement of option names.
 
-Independent community tooling, not affiliated with or endorsed by Oracle. Oracle binaries and decompiled Oracle code are not distributed here. MIT covers AUGUR's original code and documentation.
+Independent community tooling, not affiliated with or endorsed by Oracle. Oracle binaries and decompiled Oracle code are not distributed here. MIT covers ALIS's original code and documentation.

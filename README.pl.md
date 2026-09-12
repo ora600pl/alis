@@ -1,10 +1,10 @@
-# AUGUR
+# ALIS
 
-**AutoUpgrade Workbench · by ORA-600**
+**AutoUpgrade Looks Insanely Simple · by ORA-600**
 
-[Otwórz kreator](https://ora600pl.github.io/augur/) · [Wersja offline](https://ora600pl.github.io/augur/offline.html) · [English](README.md) · [Mapa zastosowań](docs/WORKFLOWS.md)
+[Otwórz kreator](https://ora600pl.github.io/alis/) · [Wersja offline](https://ora600pl.github.io/alis/offline.html) · [English](README.md) · [Mapa zastosowań](docs/WORKFLOWS.md)
 
-AUGUR przygotowuje konfigurację Oracle AutoUpgrade oraz instrukcję wykonania operacji krok po kroku. Działa w przeglądarce, bez instalacji pakietów i bez backendu. Konfiguracja pozostaje w pamięci karty. Hasła MOS i walletów wpisuje się dopiero w AutoUpgrade na serwerze.
+ALIS przygotowuje konfigurację Oracle AutoUpgrade oraz instrukcję wykonania operacji krok po kroku. Działa w przeglądarce, bez instalacji pakietów i bez backendu. Konfiguracja pozostaje w pamięci karty. Hasła MOS i walletów wpisuje się dopiero w AutoUpgrade na serwerze.
 
 ## Co można przygotować
 
@@ -44,4 +44,4 @@ Katalog obejmuje deklarowane publiczne parametry; wszystkie kombinacje środowis
 
 Budowanie używa wyłącznie standardowej biblioteki Python 3; testy JavaScript korzystają z Node bez dodatkowych pakietów. Komendy deweloperskie i aktualizację profili opisuje [README](README.md#develop-and-maintain). W repozytorium nie ma binariów Oracle ani zdekompilowanego kodu Oracle.
 
-Niezależne narzędzie społecznościowe, nie produkt Oracle. Licencja MIT obejmuje własny kod i dokumentację AUGUR.
+Niezależne narzędzie społecznościowe, nie produkt Oracle. Licencja MIT obejmuje własny kod i dokumentację ALIS.

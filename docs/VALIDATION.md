@@ -44,4 +44,4 @@ The initial in-app Blob-download attempt did not report completion, so browser-w
 
 ## Environmental boundary
 
-No database connection, AutoUpgrade analyze/fixups/deploy, patch download or Oracle home installation was performed. Topology, upgrade feasibility, privileges, filesystem state, patch conflict resolution, TDE, RAC, Data Guard and recovery remain server-side checks. An AUGUR static pass is not evidence of successful execution on an Oracle host.
+No database connection, AutoUpgrade analyze/fixups/deploy, patch download or Oracle home installation was performed. Topology, upgrade feasibility, privileges, filesystem state, patch conflict resolution, TDE, RAC, Data Guard and recovery remain server-side checks. An ALIS static pass is not evidence of successful execution on an Oracle host.

@@ -1,4 +1,4 @@
-/* AUGUR configuration model. Pure functions; no storage, DOM or network access. */
+/* ALIS configuration model. Pure functions; no storage, DOM or network access. */
 (function (root) {
   'use strict';
   const FORMAT = 1;
@@ -135,7 +135,7 @@
       const value = values.get(record.key); emitted.add(record.key);
       out.push(value === record.value ? record.raw : record.key + '=' + value + (record.comment ? ' ' + record.comment : ''));
     }
-    if (!project.records?.length) out.push('# Generated with AUGUR', '# AutoUpgrade profile: ' + project.profileId, '# Follow the generated runbook for this operation and execution host.', '');
+    if (!project.records?.length) out.push('# Generated with ALIS', '# AutoUpgrade profile: ' + project.profileId, '# Follow the generated runbook for this operation and execution host.', '');
     for (const [key, value] of values) {
       if (emitted.has(key)) continue;
       if (out.length && key.startsWith('global.') !== out.at(-1).startsWith('global.') && !key.startsWith('global.')) out.push('');
@@ -412,7 +412,7 @@
   function loadProject(text, profiles) {
     if (text.length > 1000000) throw new Error('Project exceeds 1 MB.');
     const p = JSON.parse(text);
-    if (!p || p.format !== FORMAT || !profiles[p.profileId] || !MODES[p.operation]?.includes(p.mode) || !Array.isArray(p.jobs) || p.jobs.length > 100) throw new Error('Unsupported or malformed AUGUR project.');
+    if (!p || p.format !== FORMAT || !profiles[p.profileId] || !MODES[p.operation]?.includes(p.mode) || !Array.isArray(p.jobs) || p.jobs.length > 100) throw new Error('Unsupported or malformed ALIS project.');
     const dangerous = new Set(['__proto__', 'constructor', 'prototype']);
     const checkMap = map => { if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('Invalid settings map.'); for (const [k,v] of pairs(map)) if (dangerous.has(k) || typeof v !== 'string') throw new Error('Invalid setting in project.'); };
     checkMap(p.globals); if(p.execution!=null)checkMap(p.execution);
@@ -424,5 +424,5 @@
     return p;
   }
   const api = { FORMAT, SCENARIOS, MODES, chooseScenario, modesFor, patchParts, initialMode, newProject, definition, describe, effective, entries, parseConfig, renderConfig, validate, command, diff, loadProject, clone, list };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Augur = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Alis = api;
 })(typeof globalThis === 'undefined' ? this : globalThis);

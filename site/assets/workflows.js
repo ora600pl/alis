@@ -1,5 +1,5 @@
 /* Reviewed workflow composition. Generates instructions and artifacts; executes nothing. */
-(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'));else root.AugurWorkflows=factory(root.Augur);})(typeof globalThis==='undefined'?this:globalThis,function(C){
+(function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory(require('./core.js'));else root.AlisWorkflows=factory(root.Alis);})(typeof globalThis==='undefined'?this:globalThis,function(C){
   'use strict';
   const SOURCES=[
     ['empty-home','Fresh-server installation','https://dohdatabase.com/2025/06/17/autoupgrade-new-features-install-oracle-home-on-brand-new-empty-server/'],
@@ -74,7 +74,7 @@
     for(const j of project.jobs){const v=n=>C.effective(project,j,n,profile).value;if(project.operation==='patch'||yes(v('create_oracle_home')))dirs.add(v('download_folder')||v('folder'));}
     const paths=[...dirs].filter(Boolean);
     if(paths.length)add('Prepare working directories','Execution host / Oracle software owner','Create only the staging, log and keystore paths. Oracle homes, OS groups and installation prerequisites need their own server preparation.',powershell?paths.map(path=>'New-Item -ItemType Directory -Force -Path '+q(project,path)).join('\n'):'umask 077\nmkdir -p '+paths.map(path=>q(project,path)).join(' '));
-    add('Place and review the generated files','Execution host','Save the configuration below as '+project.fileName+'. Check paths, file ownership, intended media and the selected operation. AUGUR does not upload files or run these commands.',powershell?'Get-Content -LiteralPath '+q(project,project.fileName):'cat '+q(project,project.fileName));
+    add('Place and review the generated files','Execution host','Save the configuration below as '+project.fileName+'. Check paths, file ownership, intended media and the selected operation. ALIS does not upload files or run these commands.',powershell?'Get-Content -LiteralPath '+q(project,project.fileName):'cat '+q(project,project.fileName));
     const download=project.jobs.some(j=>{const v=n=>C.effective(project,j,n,profile).value;return (project.operation==='patch'||yes(v('create_oracle_home')))&&!/^GOLDIMAGE:/i.test(v('patch')||'')&&(project.mode==='download'||yes(v('download')));});
     if(download){
       add('Load MOS credentials','Download host / Oracle software owner','Create or open the wallet at global.keystore. Enter wallet and MOS passwords only at the terminal prompts. This is an interactive session.',configCommand(project,'-load_password'),'shell',['mos']);
