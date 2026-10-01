@@ -11,17 +11,28 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+from inspect_jar import inspect
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = r"""
 const C=require('./site/assets/core.js'), W=require('./site/assets/workflows.js');
-const profile=require('./profiles/26.5.260807.json'), cases=[];
+const profile=require('./profiles/'+process.env.ALIS_PROFILE+'.json'), cases=[];
 for(const scenario of Object.keys(C.SCENARIOS)) {
   const p=W.exampleProject(profile.id,scenario), source=W.sourceProject(p,profile);
   for(const item of [p,source].filter(Boolean)) {
     if(C.validate(item,profile).some(i=>i.level==='error'))throw new Error('Invalid example '+item.fileName);
     cases.push({name:item.fileName,text:C.renderConfig(item),expected:Object.fromEntries(C.entries(item))});
   }
+}
+if(profile.behavior?.strictPatchSyntax){
+  for(const patch of ['CPAT','DBSAT','EXAPATCHMGR','EXAQFSDP:26','OEM:24.1','GI:19.32,MRP,OPATCH','RU:21.20,CSPU']){
+    const p=W.exampleProject(profile.id,'download');p.jobs[0].values.patch=patch;
+    if(patch.startsWith('RU:21'))p.jobs[0].values.target_version='21';
+    if(C.validate(p,profile).some(i=>i.level==='error'))throw new Error('Invalid download '+patch);
+    cases.push({name:'download-'+cases.length+'.cfg',text:C.renderConfig(p),expected:Object.fromEntries(C.entries(p))});
+  }
+  const p=W.exampleProject(profile.id,'upgrade');p.globals.rac_start_time_sleep_in_seconds='120';
+  cases.push({name:'rac-delay.cfg',text:C.renderConfig(p),expected:Object.fromEntries(C.entries(p))});
 }
 process.stdout.write(JSON.stringify(cases));
 """
@@ -32,7 +43,15 @@ def main():
     parser.add_argument('jar', type=Path)
     args = parser.parse_args()
     jar = args.jar.resolve(strict=True)
-    cases = json.loads(subprocess.check_output(['node', '-e', GENERATOR], cwd=ROOT, text=True))
+    identity = inspect(jar)
+    profile_path = ROOT / 'profiles' / (identity['version'] + '.json')
+    if not profile_path.exists():
+        raise SystemExit('No reviewed profile for ' + str(identity['version']))
+    profile = json.loads(profile_path.read_text())
+    if identity['sha256'] != profile['jarSha256']:
+        raise SystemExit('JAR checksum does not match the reviewed profile')
+    env = dict(os.environ, ALIS_PROFILE=profile['id'])
+    cases = json.loads(subprocess.check_output(['node', '-e', GENERATOR], cwd=ROOT, text=True, env=env))
     with tempfile.TemporaryDirectory(prefix='alis-parser-') as temp:
         work = Path(temp)
         subprocess.run(['javac', '-cp', str(jar), '-d', temp, str(ROOT / 'tools/ParserProbe.java')], check=True)

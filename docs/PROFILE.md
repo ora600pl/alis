@@ -1,6 +1,8 @@
 # AutoUpgrade profile methodology
 
-Reviewed profile: **26.5.260807**, build 2026-08-07, inspected 2026-09-12.
+Reviewed profiles: **26.6.260925** (build 2026-09-25, inspected 2026-10-01) and **26.5.260807** (build 2026-08-07, inspected 2026-09-12). [26.6 behavior and validation](AUTOUPGRADE-26.6.md).
+
+The earlier investigation below documents the 26.5 baseline; 26.6 changes are listed separately. Behavior metadata controls differences in the model and runbook, and the selected profile persists in saved projects.
 
 JAR SHA-256: `b02dfaa76767abcacd4fb61ea807129811c4a86070453bd7f390c8f0386ef512`.
 

@@ -45,3 +45,7 @@ The initial in-app Blob-download attempt did not report completion, so browser-w
 ## Environmental boundary
 
 No database connection, AutoUpgrade analyze/fixups/deploy, patch download or Oracle home installation was performed. Topology, upgrade feasibility, privileges, filesystem state, patch conflict resolution, TDE, RAC, Data Guard and recovery remain server-side checks. An ALIS static pass is not evidence of successful execution on an Oracle host.
+
+## AutoUpgrade 26.6 (2026-10-01)
+
+See [release evidence](AUTOUPGRADE-26.6.md) for 176 Node tests, 7 Python/build tests, 200 real-JAR contract comparisons and 36 parser read-backs across 26.5 and 26.6. Browser flows verify version switching, new media controls and incompatible export blocking. Oracle execution and ARU/MOS authentication/downloads remain untested.

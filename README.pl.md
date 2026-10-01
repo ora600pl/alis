@@ -34,9 +34,9 @@ Wyniki obejmują konfiguracje, komendy POSIX/PowerShell, kroki w konsoli AutoUpg
 
 ## Na czym opiera się walidacja
 
-Profil: **AutoUpgrade 26.5.260807**, build 2026-08-07. Zbadano rejestry parametrów, wybrane walidatory i przebiegi, wykorzystując dekompilację CFR, dokumentację Oracle oraz przykłady Mike'a Dietricha, Daniela Overby Hansena i Rodrigo Jorge. Szczegóły: [metodologia](docs/PROFILE.md), [mapa przebiegów](docs/WORKFLOWS.md), [wyniki sprawdzeń](docs/VALIDATION.md).
+Profile: **AutoUpgrade 26.6.260925** i **26.5.260807**. Zbadano rejestry parametrów, wybrane walidatory i przebiegi, wykorzystując dekompilację CFR, dokumentację Oracle oraz przykłady Mike'a Dietricha, Daniela Overby Hansena i Rodrigo Jorge. Szczegóły: [metodologia](docs/PROFILE.md), [mapa przebiegów](docs/WORKFLOWS.md), [wyniki sprawdzeń](docs/VALIDATION.md).
 
-Przeszło **127 testów Node, 7 testów Python oraz 14 porównań wygenerowanych plików z parserem dostarczonego JAR-a**. To nie jest dowód wykonania instalacji ani migracji na Oracle: nie uruchamiano połączeń z bazą, pobierania MOS, instalatora, analyze, fixups ani deploy. Kreator nie zna rzeczywistej topologii, dostępności patchy, uprawnień MOS, zawartości walleta ani warunków odzyskania. Zielony status oznacza przejście zaimplementowanych kontroli statycznych.
+Przeszło **176 testów Node, 7 testów Python, 200 porównań kontraktu z JAR-em i 36 porównań plików z parserami obu wydań**. To nie jest dowód wykonania instalacji ani migracji na Oracle: nie uruchamiano połączeń z bazą, pobierania MOS, instalatora, analyze, fixups ani deploy. Kreator nie zna rzeczywistej topologii, dostępności patchy, uprawnień MOS, zawartości walleta ani warunków odzyskania. Zielony status oznacza przejście zaimplementowanych kontroli statycznych.
 
 Katalog obejmuje deklarowane publiczne parametry; wszystkie kombinacje środowiskowe nie zostały przetestowane. Nieznane opcje są zachowywane z ostrzeżeniem. Zduplikowane, błędne i jawnie niewspierane wpisy blokują eksport `.cfg`.
 
@@ -45,3 +45,11 @@ Katalog obejmuje deklarowane publiczne parametry; wszystkie kombinacje środowis
 Budowanie używa wyłącznie standardowej biblioteki Python 3; testy JavaScript korzystają z Node bez dodatkowych pakietów. Komendy deweloperskie i aktualizację profili opisuje [README](README.md#develop-and-maintain). W repozytorium nie ma binariów Oracle ani zdekompilowanego kodu Oracle.
 
 Niezależne narzędzie społecznościowe, nie produkt Oracle. Licencja MIT obejmuje własny kod i dokumentację ALIS.
+
+## AutoUpgrade 26.6 i wybór wersji
+
+W kroku Plan lub na pasku bocznym wybierz **26.6.260925** albo **26.5.260807**. Wybrana wersja steruje parametrami, składnią patch=, walidacją i runbookiem. Zapisane projekty zachowują swój profil, a zmiana wersji zachowuje ustawienia i sprawdza ich zgodność.
+
+26.6 dodaje pobieranie CPAT, DBSAT, narzędzi/pakietów Exadata, Enterprise Managera i obrazów GI, CSPU dla 21c, czas oczekiwania przy starcie RAC oraz instrukcje SEHA/RAC One Node, PATH_PREFIX i wznowienia zadania. W konfiguracji upgrade usuwa target_edition. [Zmiany, dowody i odtwarzanie testów](docs/AUTOUPGRADE-26.6.md).
+
+Walidacja: 176 testów Node, 7 testów Python, 200 porównań kontraktu z JAR-em i 36 odczytów parsera obu wydań. Nie wykonywano operacji na bazie ani pobierania patchy z MOS.
