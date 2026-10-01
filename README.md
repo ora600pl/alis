@@ -82,3 +82,7 @@ python3 -S tools/verify_parser.py /path/to/autoupgrade.jar
 `profiles/` holds reviewed metadata; `site/assets/core.js` handles configuration and validation; `workflows.js` builds runbooks; `app.js` renders the UI. `site/assets/profiles.js` and `site/offline.html` are generated and tracked. CI tests and verifies reproducibility before publishing `site/` through GitHub Pages Actions. New JAR builds need a reviewed profile and regression cases, not an automatic replacement of option names.
 
 Independent community tooling, not affiliated with or endorsed by Oracle. Oracle binaries and decompiled Oracle code are not distributed here. MIT covers ALIS's original code and documentation.
+
+## Dependent choices
+
+Controls and patch buttons disable choices incompatible with the selected workflow, profile, release, platform or existing settings, with explanations. Imported settings remain visible and removable; conflicts block configuration export. [Dependency audit and Gold Image diagnostics (Polish)](docs/DEPENDENCIES.md).
