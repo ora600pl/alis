@@ -3,8 +3,10 @@ import base64
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,7 +43,32 @@ class StaticBuildTests(unittest.TestCase):
         source = (ROOT / "site/index.html").read_text()
         for link in re.findall(r'(?:src|href)="([^"]+)"', source):
             if not link.startswith(('https:', '#', 'data:')):
-                self.assertTrue((ROOT / 'site' / link).exists(), link)
+                self.assertTrue((ROOT / 'site' / link.split('?')[0]).exists(), link)
+
+    def test_online_assets_use_content_versions(self):
+        source = (ROOT / 'site/index.html').read_text()
+        links = re.findall(r'(?:src|href)="((?:assets/[^"?]+|offline\.html))([^\"]*)"', source)
+        self.assertEqual(len(links), 7)
+        for path, version in links:
+            digest = hashlib.sha256((ROOT / 'site' / path).read_bytes()).hexdigest()[:16]
+            self.assertEqual(version, '?v=' + digest, path)
+
+    def test_changed_script_gets_new_url(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            shutil.copytree(ROOT / 'site', root / 'site')
+            shutil.copytree(ROOT / 'profiles', root / 'profiles')
+            (root / 'tools').mkdir()
+            shutil.copy2(ROOT / 'tools/build.py', root / 'tools/build.py')
+            before = (root / 'site/index.html').read_text()
+            app = root / 'site/assets/app.js'
+            app.write_text(app.read_text() + '\n// Cache regression check\n')
+            subprocess.run([sys.executable, '-S', str(root / 'tools/build.py')], check=True, capture_output=True)
+            after = (root / 'site/index.html').read_text()
+            url = lambda html, name: re.search(r'src="assets/' + name + r'\?v=[a-f0-9]+"', html)[0]
+            self.assertNotEqual(url(before, 'app.js'), url(after, 'app.js'))
+            self.assertEqual(url(before, 'profiles.js'), url(after, 'profiles.js'))
+            self.assertNotRegex((root / 'site/offline.html').read_text(), r'<script[^>]+src=')
 
     def test_profiles_do_not_expose_local_paths(self):
         for path in (ROOT / "profiles").glob("*.json"):
@@ -50,8 +77,10 @@ class StaticBuildTests(unittest.TestCase):
 
     def test_build_is_deterministic(self):
         first = (ROOT / 'site/offline.html').read_bytes()
+        online = (ROOT / 'site/index.html').read_bytes()
         subprocess.run([sys.executable, '-S', str(ROOT / 'tools/build.py')], check=True, capture_output=True)
         self.assertEqual(first, (ROOT / 'site/offline.html').read_bytes())
+        self.assertEqual(online, (ROOT / 'site/index.html').read_bytes())
 
 
 if __name__ == '__main__':
