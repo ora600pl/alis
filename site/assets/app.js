@@ -33,7 +33,7 @@
       const choices = options.includes(value) || !value ? options : [value, ...options];
       control = `<select id="${id}" data-model="${esc(model)}"><option value="">${esc(eff.value == null ? 'AutoUpgrade default (omit)' : 'Inherit / default (' + eff.value + ')')}</option>${choices.map(o => `<option value="${esc(o)}" ${o === value ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     } else control = `<input id="${id}" data-model="${esc(model)}" value="${esc(value)}" placeholder="${esc(custom.placeholder || placeholders[name] || 'Not explicitly set')}" autocomplete="off" spellcheck="false">`;
-    return `<div class="field ${wide ? 'wide' : ''}"><label for="${id}">${esc(custom.label || d.label)}<code>${scope === 'g' ? 'global' : esc(job().prefix)}.${esc(name)}</code></label>${control}<span class="help">${esc(custom.help || d.help)}</span><span class="origin" data-origin="${esc(model)}">${inherited ? esc(eff.source + (eff.value == null ? '' : ': ' + eff.value)) : 'Explicit ' + (scope === 'g' ? 'global' : 'local') + ' setting'}</span></div>`;
+    return `<div class="field ${wide ? 'wide' : ''}"><label for="${id}">${esc(custom.label || d.label)}<code>${scope === 'g' ? 'global' : esc(job().prefix)}.${esc(name)}</code></label>${control}<span class="help">${esc(custom.help || d.help)}</span><span class="dependency-reason" id="${id}-reason" hidden></span><span class="origin" data-origin="${esc(model)}">${inherited ? esc(eff.source + (eff.value == null ? '' : ': ' + eff.value)) : 'Explicit ' + (scope === 'g' ? 'global' : 'local') + ' setting'}</span><button class="text-button clear-setting" data-remove-setting="${esc((scope==='g'?'global':job().prefix)+'.'+name)}" ${inherited?'hidden':''}>Remove explicit setting</button></div>`;
   }
 
   function note(id) {const g=W.GUIDES.find(g=>g.id===id);return `<details class="guide-note"><summary>${esc(g.title)}</summary><p>${esc(g.text)}</p>${sourceLinks(g.sources)}</details>`;}
@@ -156,11 +156,57 @@
       el.textContent=Object.hasOwn(map,name)?'Explicit '+(scope==='g'?'global':'local')+' setting':eff.source+(eff.value==null?'':': '+eff.value);
     }
     for (const el of document.querySelectorAll('[data-model]')) { const [s,n]=el.dataset.model.split(':'); const key=(s==='g'?'global':job().prefix)+'.'+n; el.setAttribute('aria-invalid',String(issues.some(i=>i.level==='error'&&i.key===key))); }
+    updateConstraints();
+  }
+  function patchTokenValue(token) {const parts=(job().values.patch||'').split(/,\s*/).filter(Boolean);return [...parts,token].join(',');}
+  function ownImageState() {
+    return C.changeState(project,profile(),p=>{p.jobs[active].values.patch='GOLDIMAGE:home.zip';p.jobs[active].values.download='NO';});
+  }
+  function updateConstraints() {
+    const reasons=new Set();
+    const disable=(el,state)=>{el.disabled=state.disabled;el.title=state.reason;if(state.disabled)reasons.add(state.reason);};
+    for(const el of document.querySelectorAll('[data-model]')) {
+      const [s,n]=el.dataset.model.split(':'),scope=s==='g'?'global':'local',state=C.fieldState(project,active,n,profile(),scope);
+      disable(el,state);el.setAttribute('aria-describedby',el.id+'-reason');
+      const explanation=$(el.id+'-reason');explanation.hidden=!state.disabled;explanation.textContent=state.reason;
+      el.closest('.field').querySelector('.clear-setting').hidden=!Object.hasOwn(s==='g'?project.globals:job().values,n);
+      if(el.tagName==='SELECT')for(const option of el.options){const next=C.settingState(project,active,n,option.value,profile(),scope);option.disabled=next.disabled;option.title=next.reason;if(next.disabled)reasons.add(next.reason);}
+    }
+    for(const el of document.querySelectorAll('[data-patch-preset]'))disable(el,C.settingState(project,active,'patch',el.dataset.patchPreset,profile()));
+    for(const el of document.querySelectorAll('[data-patch-token]')) {
+      const token=el.dataset.patchToken,exists=(job().values.patch||'').split(/,\s*/).some(p=>p.split(':')[0].toUpperCase()===token);
+      disable(el,exists?{disabled:true,reason:token+' is already selected.'}:C.settingState(project,active,'patch',patchTokenValue(token),profile()));
+    }
+    for(const el of document.querySelectorAll('[data-mode]'))disable(el,C.modeState(project,el.dataset.mode,profile()));
+    for(const el of document.querySelectorAll('select[data-context], select[data-execution]'))for(const option of el.options) {
+      const scope=el.dataset.context?'context':'execution',name=el.dataset[scope];
+      const state=C.changeState(project,profile(),p=>{const map=scope==='context'?(p.jobs[active].context??={}):(p.execution??={});map[name]=option.value;});
+      option.disabled=state.disabled;option.title=state.reason;
+    }
+    if($('use-own-image')){const state=ownImageState();disable($('use-own-image'),state);disable($('own-image'),state);}
+    if($('append-patch-number'))disable($('append-patch-number'),C.settingState(project,active,'patch',patchTokenValue('12345678'),profile()));
+    if($('apply-patch-version')) {
+      const parts=C.patchParts(job().values.patch,profile()),version=$('patch-version').value.trim(),hasPin=parts.some(t=>['RU','RECOMMENDED','GI'].includes(t.type));
+      const selection=(job().values.patch||'').split(/,\s*/).map(t=>/^(RU|RECOMMENDED|GI)(:|$)/i.test(t)?t.split(':')[0]+':'+version:t).join(',');
+      const state=!hasPin?{disabled:true,reason:'Select RU, RECOMMENDED or GI before applying a version pin.'}:!version?{disabled:true,reason:'Enter a release pin before applying it.'}:C.settingState(project,active,'patch',selection,profile());
+      disable($('apply-patch-version'),state);
+    }
+    if($('advanced-param')) {
+      const name=$('advanced-param').value,scope=$('advanced-scope').value,state=C.fieldState(project,active,name,profile(),scope);
+      for(const option of $('advanced-param').options){const d=C.definition(profile(),project.operation,option.value);const next=C.fieldState(project,active,option.value,profile(),d.scope==='global'?'global':'local');option.disabled=next.disabled;option.title=next.reason;}
+      disable($('advanced-value'),state);
+      const candidate=C.settingState(project,active,name,$('advanced-value').value.trim(),profile(),scope);
+      disable($('add-setting'),candidate.disabled?candidate:state);
+      $('advanced-help').textContent=state.reason||candidate.reason||C.describe(C.definition(profile(),project.operation,name)).help;
+    }
+    $('dependency-notes').hidden=!reasons.size;
+    $('dependency-reasons').innerHTML=[...reasons].map(reason=>'<li>'+esc(reason)+'</li>').join('');
   }
   function updateAdvanced() {
     const d=C.describe(C.definition(profile(),project.operation,$('advanced-param').value));
     $('advanced-help').textContent=d.help + (d.options?' Values: '+d.options.join(', ')+'.':'') + (!d.inherit?' Global and local settings are independent.':'');
     const choices=d.scope==='both'?['local','global']:[d.scope]; $('advanced-scope').innerHTML=choices.map(s=>`<option value="${s}">${s==='global'?'All databases':'This database'}</option>`).join('');
+    updateConstraints();
   }
   function setValue(map,key,value) { if(value==='')delete map[key];else map[key]=value;dirty=true; }
   function go(next) { step=next;render();$('workspace').focus({preventScroll:true});if(innerWidth<980)$('workspace').scrollIntoView({behavior:'instant',block:'start'});else window.scrollTo({top:0,behavior:'instant'}); }
@@ -184,6 +230,8 @@
   }
   document.addEventListener('input',event=>{
     const el=event.target;
+    if(el.disabled)return;
+    if(['advanced-value','advanced-scope','own-image','patch-version'].includes(el.id)){updateConstraints();return;}
     if(el.id==='reference-operation'){referenceOperation=el.value;guide('parameters');return;}
     if(el.id==='reference-search'){$('reference-results').innerHTML=reference(el.value);return;}
     if(el.dataset.execution){project.execution??={};project.execution[el.dataset.execution]=el.value;dirty=true;updatePreview();}
@@ -206,7 +254,7 @@
     if(step===7&&el.dataset.project)render();
   });
   document.addEventListener('click',event=>{
-    const el=event.target.closest('button');if(!el)return;
+    const el=event.target.closest('button');if(!el||el.disabled)return;
     if(el.dataset.step!=null)go(Number(el.dataset.step));
     if(el.id==='update-pdb-mapping')render();
     if(el.dataset.mode){project.mode=el.dataset.mode;dirty=true;render();}
@@ -227,7 +275,7 @@
     if(el.dataset.copyStep!=null)copy(W.runbook(project,profile()).steps[Number(el.dataset.copyStep)].code);
     if(el.dataset.copyTool!=null)copy(W.runbook(project,profile()).toolbox[Number(el.dataset.copyTool)].code);
     if(el.dataset.removeSetting)removeSetting(el.dataset.removeSetting);
-    if(el.id==='add-setting'){const name=$('advanced-param').value,value=$('advanced-value').value.trim();if(!value){toast('Enter a value to add.');return;}const map=$('advanced-scope').value==='global'?project.globals:job().values;setValue(map,name,value);render();toast('Setting added.');}
+    if(el.id==='add-setting'){const name=$('advanced-param').value,value=$('advanced-value').value.trim();if(!value){toast('Enter a value to add.');return;}const state=C.settingState(project,active,name,value,profile(),$('advanced-scope').value);if(state.disabled){toast(state.reason);return;}const map=$('advanced-scope').value==='global'?project.globals:job().values;setValue(map,name,value);render();toast('Setting added.');}
   });
   $('previous').onclick=()=>go(Math.max(0,step-1));$('next').onclick=()=>go(Math.min(7,step+1));$('review-issues').onclick=()=>go(7);
   $('save-project').onclick=saveProject;

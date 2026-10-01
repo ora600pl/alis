@@ -246,6 +246,10 @@
       }
     }
     if (project.operation === 'upgrade') for (const job of project.jobs) if (job.values.target_cdb && project.jobs.some(other => other.scenario === 'upgrade' && String(other.values.sid || '').toLowerCase() === job.values.target_cdb.toLowerCase())) add('error', 'target-upgrade', job.prefix + ': the target CDB is also scheduled for upgrade in this file.');
+    if(project.operation==='patch'&&project.mode!=='download')for(const job of project.jobs){
+      const target=effective(project,job,'target_home',profile).value;
+      if(target&&!target.includes('%')&&project.jobs.some(other=>other!==job&&['source_home','target_home'].some(n=>effective(project,other,n,profile).value===target)))add('error','home-collision',job.prefix+': this target Oracle home is a source or target of another entry. Use separate homes or projects.',job.prefix+'.target_home');
+    }
     if (!/^[A-Za-z0-9_.-]+$/.test(project.fileName || '') || !project.fileName.endsWith('.cfg')) add('error', 'filename', 'Choose a simple filename ending in .cfg.');
     issues.push(...validateWorkflows(project,profile));
     if (!project.jarPath || /[\r\n\0]/.test(project.jarPath)) add('error', 'jar-path', 'Enter the AutoUpgrade JAR path.');
@@ -257,6 +261,48 @@
     return s?.group==='Prepare software'?[s.mode]:scenario==='pdb_upgrade'?['upgrade','analyze','postfixups']:MODES[s?.operation||'upgrade'];
   }
   function initialMode(project) { return ['download','create_home','upgrade','postfixups'].includes(project.mode)?project.mode:'analyze'; }
+  // Prospective controls reuse export validation. Unrelated incomplete fields must
+  // not lock the form, and existing imported conflicts must remain repairable.
+  const DEPENDENCY_CODES = new Set(['scope','operation','unsupported','profile-parameter','value','logs','grp','compatible-release','replay','scenario-settings','same-cdb','stats','workflow-mode','patch-expression','patch-ru','patch-version','download-only','patch-combination','patch-duplicate','recommended-version','gi-version','ru-version','patch-upgrade','gold-use','gold-create','gold-conflict','gold-exclusive','gold-download','gold-name','ojvm','patch-release','cspu-platform','mrp-platform','mrp-version','ojvm-ru','ol9','gold-service-ru','gold-service-version','gold-service-platform','folder-conflict','rolling-windows','rolling-single','standby-mode','target-upgrade','home-collision']);
+  function changeState(project, profile, change) {
+    const candidate=clone(project);change(candidate);
+    const signature=i=>i.code+'|'+i.key+'|'+i.text;
+    const before=new Set(validate(project,profile).filter(i=>i.level==='error'&&DEPENDENCY_CODES.has(i.code)).map(signature));
+    const issue=validate(candidate,profile).find(i=>i.level==='error'&&DEPENDENCY_CODES.has(i.code)&&!before.has(signature(i)));
+    return {disabled:Boolean(issue),reason:issue?.text||''};
+  }
+  function fieldState(project,index,name,profile,scope='local') {
+    const j=project.jobs[index],get=n=>effective(project,j,n,profile).value;
+    const def=definition(profile,project.operation,name);
+    let reason='';
+    if(!def||def.status!=='available')reason='This parameter is unavailable in the selected operation and profile.';
+    else if((scope==='global'&&def.scope==='local')||(scope==='local'&&def.scope==='global'))reason='This parameter does not support the selected scope.';
+    const gold=patchParts(get('patch'),profile).some(t=>t.type==='GOLDIMAGE');
+    const tools=patchParts(get('patch'),profile).every(t=>profile.behavior?.downloadOnlyTools?.includes(t.type)||t.type==='TOOLS');
+    if(project.operation==='patch') {
+      if(['download','create_home'].includes(project.mode)&&['restoration','drop_grp_after_patching','rac_rolling','drain_timeout','patch_node'].includes(name))reason='This software-only operation does not run database recovery, rolling patching or service draining.';
+      if(name==='create_gold_image'&&!['create_home','deploy'].includes(project.mode))reason='Packaging runs after target-home installation in create_home or deploy; it does not run in '+project.mode+'.';
+      if(name==='create_gold_image'&&gold)reason='This local archive is already packaged. Use a separate image-building project to create another archive.';
+      if(['gold_image','gold_image.security_patch_level'].includes(name)&&(gold||tools))reason=gold?'PATCH=GOLDIMAGE uses your local ZIP; Oracle-supplied image settings do not apply.':'These tools do not use a database Gold Image.';
+      if(name==='gold_image.security_patch_level'&&String(get('gold_image')).toUpperCase()==='NO')reason='Security patch level applies to Oracle-supplied images. Enable gold_image first.';
+      if(['download_folder','folder'].includes(name)&&get(name==='folder'?'download_folder':'folder'))reason='The other media-directory spelling is already set. Remove it before choosing this spelling.';
+    }
+    if(project.operation==='upgrade'&&['patch','download','folder','download_folder'].includes(name)&&!yes(get('create_oracle_home')))reason='Enable create_oracle_home before choosing installation media for this upgrade.';
+    if(project.operation==='upgrade'&&['target_cdb','target_pdb_name','target_pdb_copy_option','keep_source_pdb','source_dblink'].includes(name)&&['upgrade','pdb_upgrade'].includes(j.scenario))reason='Select a migration or clone workflow before configuring PDB movement.';
+    if(name==='parallel_stats_degree'&&!yes(get('dictionary_stats_before')))reason='Enable dictionary_stats_before=YES before setting its parallel degree.';
+    return {disabled:Boolean(reason),reason};
+  }
+  function settingState(project,index,name,value,profile,scope='local') {
+    // Omission is always available as a repair, including inherited conflicts.
+    if(value==='')return {disabled:false,reason:''};
+    const availability=fieldState(project,index,name,profile,scope);
+    if(availability.disabled)return availability;
+    const candidate=clone(project);(scope==='global'?candidate.globals:candidate.jobs[index].values)[name]=value;
+    const issue=validate(candidate,profile).find(i=>i.level==='error'&&DEPENDENCY_CODES.has(i.code)&&i.key.endsWith('.'+name));
+    if(issue)return {disabled:true,reason:issue.text};
+    return changeState(project,profile,p=>{(scope==='global'?p.globals:p.jobs[index].values)[name]=value;});
+  }
+  function modeState(project,mode,profile) { return changeState(project,profile,p=>{p.mode=mode;}); }
   function chooseScenario(project,index,scenario) {
     if(!SCENARIOS[scenario])throw new Error('Unknown scenario');
     const s=SCENARIOS[scenario],j=project.jobs[index];
@@ -343,11 +389,11 @@
         if(gold) {
           if(parts.length!==1)error('gold-exclusive','GOLDIMAGE cannot be combined with patch aliases or numbers.','patch');
           if(project.mode==='download'||(project.mode!=='create_home'&&yes(get('download'))))error('gold-download','a user Gold Image is local media; download mode is not supported. Use download=NO outside create_home.');
-          if(get('create_gold_image')&&!/^NO$/i.test(get('create_gold_image')))error('gold-conflict','using and creating a user Gold Image cannot be combined.');
+          if(get('create_gold_image')&&!/^NO$/i.test(get('create_gold_image')))error('gold-conflict','this local archive is already packaged; use a separate project to create another image.','create_gold_image');
         }
         const create=get('create_gold_image');
         if(create&&!/^(YES|NO)$/i.test(create)) {
-          if(!/^[A-Za-z0-9_%.-]+\.zip$/.test(create)||create.replace(/%(RELEASE|UPDATE|DATE|TIMESTAMP)%/g,'').includes('%'))error('gold-name','use a ZIP basename with RELEASE, UPDATE, DATE or TIMESTAMP placeholders.','create_gold_image');
+          if(!/^[A-Za-z0-9_%-]+\.zip$/.test(create)||create.replace(/%(RELEASE|UPDATE|DATE|TIMESTAMP)%/g,'').includes('%'))error('gold-name','use a ZIP basename with letters, digits, underscores, hyphens and RELEASE, UPDATE, DATE or TIMESTAMP placeholders.','create_gold_image');
         }
         if(get('target_home')&&get('target_home').replace(/%(RELEASE|UPDATE|V[1-5]D)%/g,'').includes('%'))error('home-placeholder','unsupported target home placeholder.','target_home');
         if(parts.some(t=>t.type==='OJVM')&&major>=21)error('ojvm','this release has no separate OJVM bundle. Use RECOMMENDED or remove OJVM.','patch');
@@ -450,6 +496,6 @@
     p.records=p.original?parseConfig(p.original,profiles[p.profileId],p.operation).project.records:[];
     return p;
   }
-  const api = { FORMAT, SCENARIOS, MODES, chooseScenario, modesFor, patchParts, initialMode, newProject, definition, describe, effective, entries, parseConfig, renderConfig, validate, command, diff, loadProject, clone, list };
+  const api = { FORMAT, SCENARIOS, MODES, chooseScenario, modesFor, patchParts, initialMode, fieldState, settingState, modeState, changeState, newProject, definition, describe, effective, entries, parseConfig, renderConfig, validate, command, diff, loadProject, clone, list };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Alis = api;
 })(typeof globalThis === 'undefined' ? this : globalThis);

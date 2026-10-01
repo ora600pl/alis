@@ -8,11 +8,11 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>ALIS — AutoUpgrade Looks Insanely Simple</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg?v=21e9cd54d57ec6ae">
-  <link rel="stylesheet" href="assets/style.css?v=4bab76260f6030ab">
-  <script defer src="assets/profiles.js?v=5650b9d53326523e"></script>
-  <script defer src="assets/core.js?v=f6c9470bf828ddea"></script>
-  <script defer src="assets/workflows.js?v=ddef8a0174352dd1"></script>
-  <script defer src="assets/app.js?v=8685ac29ef7d51a9"></script>
+  <link rel="stylesheet" href="assets/style.css?v=11c03e2b8a1e6862">
+  <script defer src="assets/profiles.js?v=cb606055be232e24"></script>
+  <script defer src="assets/core.js?v=f16429c81cb2bef6"></script>
+  <script defer src="assets/workflows.js?v=8bcf02508c111d34"></script>
+  <script defer src="assets/app.js?v=4996239209f53ae4"></script>
 </head>
 <body>
 <a class="skip" href="#workspace">Skip to configuration</a>
@@ -32,12 +32,13 @@
     <nav id="step-nav"></nav>
     <div class="profile-info"><span class="eyebrow">AUTOUPGRADE PROFILE</span><strong id="profile-name">26.6.260925</strong><span id="profile-reviewed">Inspected 1 Oct 2026</span><button id="profile-details" class="text-button">About this profile ↗</button></div>
     <div class="privacy-note"><span class="privacy-symbol" aria-hidden="true">◈</span><strong>Your configuration stays here.</strong><p>Files and settings are processed in your browser. No uploads. No account needed.</p></div>
-    <a class="offline-link" id="offline-download" href="offline.html?v=6aa6e180f38c388a" download="alis-offline.html">Download offline edition ↓</a>
+    <a class="offline-link" id="offline-download" href="offline.html?v=f8b0e407d1011b60" download="alis-offline.html">Download offline edition ↓</a>
   </aside>
   <main id="workspace" tabindex="-1">
     <div class="workspace-top"><div><span class="eyebrow" id="step-kicker">01 / PLAN</span><h1 id="step-title">Every good upgrade starts with a plan.</h1><p class="intro" id="step-intro">Choose your path. ALIS will bring the right settings into focus.</p></div></div>
     <div class="database-strip"><label for="active-job">Entry</label><select id="active-job"></select><button id="add-job" class="small-button">+ Add</button><button id="remove-job" class="small-button">Remove</button><button id="new-project" class="small-button reset-project">New project</button></div>
     <div id="step-content"></div>
+    <details id="dependency-notes" class="guide-note" hidden><summary>Why are some choices unavailable?</summary><ul id="dependency-reasons"></ul><p>Remove an explicit setting or change its prerequisite to enable another choice. Imported values are preserved; conflicting configurations cannot be exported.</p></details>
     <div class="step-footer"><button id="previous" class="button quiet">← Back</button><span id="step-count">Step 1 of 8</span><button id="next" class="button primary">Database details →</button></div>
     <p class="product-footer">Independent tooling for Oracle DBAs. Not an Oracle product.</p>
   </main>

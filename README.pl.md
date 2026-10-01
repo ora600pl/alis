@@ -53,3 +53,7 @@ W kroku Plan lub na pasku bocznym wybierz **26.6.260925** albo **26.5.260807**. 
 26.6 dodaje pobieranie CPAT, DBSAT, narzędzi/pakietów Exadata, Enterprise Managera i obrazów GI, CSPU dla 21c, czas oczekiwania przy starcie RAC oraz instrukcje SEHA/RAC One Node, PATH_PREFIX i wznowienia zadania. W konfiguracji upgrade usuwa target_edition. [Zmiany, dowody i odtwarzanie testów](docs/AUTOUPGRADE-26.6.md).
 
 Walidacja: 176 testów Node, 7 testów Python, 200 porównań kontraktu z JAR-em i 36 odczytów parsera obu wydań. Nie wykonywano operacji na bazie ani pobierania patchy z MOS.
+
+## Zależności opcji
+
+Kreator wyszarza opcje niedostępne w wybranym przebiegu, wydaniu, platformie lub kombinacji patchy i wyjaśnia powód. Importowane ustawienia pozostają widoczne oraz możliwe do usunięcia; sprzeczności blokują eksport. [Tabela zależności, kolejność Gold Image i diagnostyka PATCH101](docs/DEPENDENCIES.md).

@@ -49,3 +49,9 @@ No database connection, AutoUpgrade analyze/fixups/deploy, patch download or Ora
 ## AutoUpgrade 26.6 (2026-10-01)
 
 See [release evidence](AUTOUPGRADE-26.6.md) for 176 Node tests, 7 Python/build tests, 200 real-JAR contract comparisons and 36 parser read-backs across 26.5 and 26.6. Browser flows verify version switching, new media controls and incompatible export blocking. Oracle execution and ARU/MOS authentication/downloads remain untested.
+
+## Dependency controls — 2026-10-01
+
+200 Node tests (24 new dependency/runbook regressions), 9 Python build tests, 200 isolated 26.6 JAR comparisons and 36 parser readbacks across both builds passed. Browser checks covered disabled local-image patch/image controls, dynamic NO/AUTO security-level gating, download-only capture gating, invalid/valid advanced settings and importing/removing a conflicting capture request. The online and standalone offline builds produced no console warnings/errors in these checks.
+
+The supplied input-image + output-image configuration remains accepted: static CFR and independent javap inspection show CREATE_GOLD_IMAGE after installation. PATCH101 needs the captured installer output to diagnose its server-side cause. See [dependency audit](DEPENDENCIES.md). No Oracle installation or MOS/ARU request was performed.

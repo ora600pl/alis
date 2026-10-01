@@ -1834,8 +1834,8 @@
         "type": "text",
         "status": "available",
         "source": "oracle/patch/config/PatchConfigParameters.java:53",
-        "label": "Create a reusable Gold Image",
-        "help": "NO disables packaging; YES creates a generated ZIP name; a ZIP basename can include %RELEASE%, %UPDATE%, %DATE% and %TIMESTAMP%. Cannot be combined with PATCH=GOLDIMAGE.",
+        "label": "Package the installed target home (output)",
+        "help": "Runs after target-home installation and binary patching. NO disables packaging; YES generates a ZIP name; a basename can use %RELEASE%, %UPDATE%, %DATE% and %TIMESTAMP%. gold_image selects independent input media. For a local PATCH=GOLDIMAGE archive, ALIS uses a separate image-building project; this JAR can skip redundant capture of an unchanged archive.",
         "group": "Media and images",
         "evidence": "JAR declaration and selected consumer/validator inspection; server-dependent constraints are not simulated."
       },
@@ -2038,7 +2038,7 @@
         "type": "text",
         "status": "available",
         "source": "oracle/patch/config/PatchConfigParameters.java:67",
-        "label": "Oracle-supplied Gold Image",
+        "label": "Oracle-supplied installation image (input)",
         "help": "AUTO chooses available image or patch media at runtime; NO uses individual patches; YES requests an Oracle image with separate one-offs; ALL includes one-offs in the request. This is separate from PATCH=GOLDIMAGE for your own ZIP.",
         "options": [
           "AUTO",
