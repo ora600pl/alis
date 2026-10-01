@@ -130,7 +130,7 @@
   function renderConfig(project) {
     const values = new Map(entries(project)); const emitted = new Set(); const out = [];
     for (const record of project.records || []) {
-      if (!record.key || record.invalid || record.duplicate) { out.push(record.raw); continue; }
+      if (!record.key || record.invalid || record.duplicate) { out.push(/^# AutoUpgrade profile: /.test(record.raw) ? '# AutoUpgrade profile: ' + project.profileId : record.raw); continue; }
       if (!values.has(record.key)) continue;
       const value = values.get(record.key); emitted.add(record.key);
       out.push(value === record.value ? record.raw : record.key + '=' + value + (record.comment ? ' ' + record.comment : ''));
@@ -165,6 +165,9 @@
       if (value.trim() !== value) add('error', 'whitespace', key + ': remove leading or trailing whitespace.', key);
       if (value.includes('$') && !/^[\w$]+$/.test(value)) add('warning', 'environment', key + ': variables are not expanded by the file parser. Prefer an explicit path.', key);
       if (!param) {
+        if ([...(profile.behavior?.removedParameters || []), ...(profile.behavior?.unavailableParameters || [])].includes(rest)) {
+          add('error', 'profile-parameter', key + ': unavailable in AutoUpgrade ' + profile.id + '. Remove it or select the matching profile.', key); continue;
+        }
         const other = definition(profile, project.operation === 'upgrade' ? 'patch' : 'upgrade', rest);
         add(other ? 'error' : 'warning', other ? 'operation' : 'unknown', key + (other ? ': belongs to the other AutoUpgrade operation. Remove it or change the operation.' : ': unrecognized parameter preserved; its meaning is not validated.'), key); continue;
       }
@@ -269,11 +272,19 @@
     if(scenario==='gold_create'&&!j.values.create_gold_image)j.values.create_gold_image='YES';
     if(scenario==='gold_use'&&!j.values.download)j.values.download='NO';
   }
-  function patchParts(text) {
+  function patchParts(text, profile) {
     const tokens=String(text||'').split(/,\s*/);
-    const fixed='CSPU|DPBP|JDK|MRP|OPATCH|AU|SQLCL|AHF|CVU|SDOBP|TEXT|TOOLS';
-    const re=new RegExp('^(?:(RECOMMENDED|RU|OJVM|OCW)(?::(\\d{2}\\.\\d{1,2}(?:\\.\\d)?))?|('+fixed+')|(\\d+)|GOLDIMAGE:([A-Za-z0-9_-]+\\.zip))$','i');
-    return tokens.map(token=>{const m=token.match(re);return m?{token,type:(m[1]||m[3]||(m[4]?'NUMBER':'GOLDIMAGE')).toUpperCase(),version:m[2]||'',file:m[5]||''}:{token,error:true};});
+    const modern=Boolean(profile?.behavior?.strictPatchSyntax);
+    const fixed='CSPU|DPBP|JDK|MRP|OPATCH|AU|SQLCL|AHF|CVU|SDOBP|TEXT|TOOLS'+(modern?'|CPAT|DBSAT|EXAPATCHMGR':'');
+    const re=new RegExp('^(?:(RECOMMENDED|RU|OJVM|OCW'+(modern?'|GI':'')+')(?::(\\d{2}\\.\\d{1,2}(?:\\.\\d)?))?|('+fixed+')|(\\d+)|GOLDIMAGE:([A-Za-z0-9_-]+\\.zip))$','i');
+    return tokens.map(token=>{
+      const extra=modern&&token.match(/^(OEM|EXAQFSDP):(\d+(?:\.\d+)*)$/i);
+      if(extra)return {token,type:extra[1].toUpperCase(),version:extra[2],file:'',error:!profile.behavior.versionedDownloads[extra[1].toUpperCase()].includes(extra[2])};
+      const m=token.match(re);
+      if(!m)return {token,error:true};
+      const version=m[2]||'';
+      return {token,type:(m[1]||m[3]||(m[4]?'NUMBER':'GOLDIMAGE')).toUpperCase(),version,file:m[5]||'',...(modern&&version&&!/^((19|21)\.\d{1,2}|23\.\d|23\.(2[6-9]|[3-9][0-9])\.[0-4])$/.test(version)?{error:true}:{})};
+    });
   }
   function validateWorkflows(project,profile) {
     const out=[],add=(level,code,text,key='')=>out.push({level,code,text,key});
@@ -284,8 +295,9 @@
     if(e.mosUser&&!/^[A-Za-z0-9_.+@-]+$/.test(e.mosUser))add('error','mos-user','Enter a MOS username, without a password.');
     if(e.csi&&!/^\d+$/.test(e.csi))add('error','csi','CSI must contain digits only; it is optional in this build.');
     if(e.jobIds&&!/^\d+(,\d+)*$/.test(e.jobIds))add('error','job-ids','Job identifiers must be numbers separated by commas.');
+    if(profile.behavior?.resumeCli&&e.jobIds&&e.jobIds.split(',').some(id=>Number(id)<1||Number(id)>2147483647))add('error','job-ids','26.6 resume requires positive 32-bit job identifiers.');
     for(const name of ['unattended','debug','restoreOnFail'])if(e[name]&&!['YES','NO'].includes(e[name]))add('error','execution','Execution setting '+name+' must be YES or NO.');
-    const contextOptions={os:['linux','ol9','windows'],topology:['single','rac'],role:['primary_dg','standby'],location:['remote'],sourceVersion:['19','21','23'],tde:['none','password','auto','okv']};
+    const contextOptions={os:['linux','ol9','windows'],topology:['single','rac',...(profile.behavior?.haTopology?['seha','racone']:[])],role:['primary_dg','standby'],location:['remote'],sourceVersion:['19','21','23'],tde:['none','password','auto','okv']};
     for(const j of project.jobs) {
       const get=n=>effective(project,j,n,profile).value,ctx=j.context||{},p=j.prefix;
       const error=(code,msg,key='')=>add('error',code,p+': '+msg,key?p+'.'+key:'');
@@ -299,12 +311,24 @@
       if(software&&!modesFor(j.scenario).includes(project.mode))error('workflow-mode','this software-only workflow needs '+SCENARIOS[j.scenario].mode+' mode. Split database operations into another project.');
       if(j.scenario==='pdb_upgrade'&&!modesFor(j.scenario).includes(project.mode))error('workflow-mode','PDBs already in the target CDB use upgrade, analyze or postfixups mode.');
       if(project.operation==='patch') {
-        const parts=patchParts(get('patch')),version=Number(get('target_version')||parts.find(t=>['RU','RECOMMENDED'].includes(t.type)&&t.version)?.version.split('.')[0]||ctx.sourceVersion||0),major=version===26?23:version;
+        const behavior=profile.behavior||{},parts=patchParts(get('patch'),profile),version=Number(String(get('target_version')||parts.find(t=>['RU','RECOMMENDED','GI'].includes(t.type)&&t.version)?.version.split('.')[0]||ctx.sourceVersion||0).split('.')[0]),major=version===26?23:version;
+        const toolOnly=parts.length>0&&parts.every(t=>behavior.downloadOnlyTools?.includes(t.type));
         const ru=parts.find(t=>t.type==='RU'||t.type==='RECOMMENDED'),gold=parts.find(t=>t.type==='GOLDIMAGE');
         if(parts.some(t=>t.error))error('patch-expression','unsupported patch expression. Use registered aliases, numeric IDs or GOLDIMAGE:filename.zip.','patch');
         if(!['download'].includes(project.mode)&&!ru&&!gold)error('patch-ru','home creation and out-of-place patching require RU, RECOMMENDED or GOLDIMAGE.','patch');
-        if(noDB&&!get('source_home')&&!get('target_version')&&!ru?.version&&!gold)error('patch-version','set target_version or a versioned RU / RECOMMENDED expression.','target_version');
-        if(get('target_version')&&!['19','21','23','26'].includes(String(get('target_version'))))error('patch-version','this patch profile accepts 19, 21, 23 or 26.','target_version');
+        if(noDB&&!get('source_home')&&!get('target_version')&&!ru?.version&&!gold&&(!toolOnly||parts.some(t=>t.type==='GI'&&!t.version)))error('patch-version','set target_version or a versioned RU / RECOMMENDED / GI expression.','target_version');
+        if(get('target_version')&&!['19','21','23','26'].includes(behavior.dottedTargetVersion?String(get('target_version')).split('.')[0]:String(get('target_version'))))error('patch-version','this patch profile accepts database releases 19, 21, 23 or 26.','target_version');
+        if(behavior.dottedTargetVersion&&String(get('target_version')||'').includes('.'))warn('target-version-normalized','target_version components after the major release are ignored; pin the RU in patch=.');
+        if(behavior.strictPatchSyntax){
+          if(parts.some(t=>behavior.downloadOnlyTools.includes(t.type)||t.type==='TOOLS')&&project.mode!=='download')error('download-only','this selection includes download-only media; use download mode.','patch');
+          if(parts.some(t=>t.type==='OEM')&&parts.length!==1)error('patch-combination','OEM must be the only selection.','patch');
+          if(parts.some(t=>t.type==='GI')&&parts.some(t=>!['GI','MRP','OPATCH','NUMBER'].includes(t.type)))error('patch-combination','GI combines only with MRP, OPATCH and numeric patch IDs.','patch');
+          const seen=new Set();for(const t of parts){if(t.type&&t.type!=='NUMBER'){if(seen.has(t.type))error('patch-duplicate','duplicate patch alias '+t.type+'.','patch');seen.add(t.type);}}
+          const recommended=parts.find(t=>t.type==='RECOMMENDED');
+          if(recommended&&parts.some(t=>['RU','OJVM'].includes(t.type)&&t.version!==recommended.version))error('recommended-version','explicit RU/OJVM pins must match the RECOMMENDED pin, including an omitted pin.','patch');
+          const gi=parts.find(t=>t.type==='GI');
+          if(gi?.version&&major&&Number(gi.version.split('.')[0])!==major)error('gi-version','GI release and target_version disagree.','patch');
+        }
         const norm=v=>Number(String(v).split('.')[0])===26?23:Number(String(v).split('.')[0]);
         if(ru?.version&&major&&norm(ru.version)!==major)error('ru-version','RU release and target_version disagree.','patch');
         if(!noDB && ctx.sourceVersion&&get('target_version')&&norm(ctx.sourceVersion)!==norm(get('target_version')))error('patch-upgrade','patch deploy does not perform a major-version upgrade. Use an upgrade workflow.');
@@ -327,21 +351,22 @@
         }
         if(get('target_home')&&get('target_home').replace(/%(RELEASE|UPDATE|V[1-5]D)%/g,'').includes('%'))error('home-placeholder','unsupported target home placeholder.','target_home');
         if(parts.some(t=>t.type==='OJVM')&&major>=21)error('ojvm','this release has no separate OJVM bundle. Use RECOMMENDED or remove OJVM.','patch');
-        if(major===21&&parts.some(t=>['DPBP','MRP','CSPU'].includes(t.type)))error('patch-release','this build rejects DPBP, MRP and CSPU for release 21.','patch');
+        if(major===21&&parts.some(t=>(behavior.cspu21?['DPBP','MRP']:['DPBP','MRP','CSPU']).includes(t.type)))error('patch-release','this build rejects the selected bundle for release 21.','patch');
+        if(behavior.cspu21&&major&&major!==21&&parts.some(t=>t.type==='CSPU')&&(!get('platform')||/^LINUX\./i.test(get('platform'))))error('cspu-platform','on Linux, CSPU is supported only for release 21; use MRP for 19 and 23/26.','patch');
         if(parts.some(t=>t.type==='MRP')&&get('platform')&&String(get('platform')).toUpperCase()!=='LINUX.X64')error('mrp-platform','MRP requires LINUX.X64 in this build.','patch');
         if(parts.some(t=>t.type==='MRP')&&ru?.version&&((major===19&&Number(ru.version.split('.')[1])<=16)||(major===23&&Number(ru.version.split('.')[1])<26)))error('mrp-version','MRP needs a pinned RU newer than 19.16, or 23.26 and later.','patch');
         const ojvm=parts.find(t=>t.type==='OJVM'&&t.version);
-        if(ojvm&&ru?.version&&(norm(ojvm.version)!==norm(ru.version)||Number(ojvm.version.split('.')[1])<Number(ru.version.split('.')[1])))error('ojvm-ru','the explicit OJVM release cannot precede or use another major release than RU.');
+        if(ojvm&&ru?.version&&(norm(ojvm.version)!==norm(ru.version)||(!behavior.olderOjvm&&Number(ojvm.version.split('.')[1])<Number(ru.version.split('.')[1]))))error('ojvm-ru','the explicit OJVM release cannot precede or use another major release than RU.');
         if(ctx.os==='ol9'&&ru?.version&&norm(ru.version)===19&&Number(ru.version.split('.')[1])<22)error('ol9','Oracle Linux 9 requires a 19c RU of at least 19.22 in this validator.');
         const needsDownload=project.mode==='download'||yes(get('download')),oua=['YES','ALL'].includes(String(get('gold_image')).toUpperCase())&&!(parts.length===1&&parts[0].type==='OCW');
         if(needsDownload&&oua&&!gold){
-          if(!ru)error('gold-service-ru','Oracle Update Advisor images require RU or RECOMMENDED.','patch');
+          if(!ru&&!parts.some(t=>t.type==='GI'))error('gold-service-ru','Oracle Update Advisor images require RU or RECOMMENDED.','patch');
           if(major&&![19,23].includes(major))error('gold-service-version','Oracle Update Advisor Gold Images support releases 19 and 23/26 in this build.');
           if(get('platform')&&String(get('platform')).toUpperCase()!=='LINUX.X64')error('gold-service-platform','Oracle Update Advisor images require LINUX.X64. Choose AUTO/NO for fallback or separate media.');
         }
         if(get('download_folder')&&get('folder')&&get('download_folder')!==get('folder'))error('folder-conflict','folder and download_folder differ. Choose one media location.');
         if((project.mode==='download'||yes(get('download')))&&!gold&&!project.globals.keystore)warn('mos-wallet','configure global.keystore and load MOS credentials on the download host.');
-        if(String(get('gold_image')).toUpperCase()==='AUTO')warn('gold-auto','AUTO may fall back to individual patches. For 19c/21c, stage base-release media when a Gold Image is unavailable.');
+        if(String(get('gold_image')).toUpperCase()==='AUTO'&&!toolOnly)warn('gold-auto','AUTO may fall back to individual patches. For 19c/21c, stage base-release media when a Gold Image is unavailable.');
       }
       for(const [key,value] of pairs({...project.globals,...j.values})) {
         if(key.startsWith('home_settings.')&&['oracle_base','inventory_location'].includes(key.split('.')[1])&&!/^(\/|[A-Za-z]:[\\/])/.test(value))error('home-path','use an absolute server path.',key);
@@ -362,6 +387,8 @@
       }
       if(ctx.tde&&ctx.tde!=='none'&&!project.globals.keystore)warn('tde','set global.keystore and load required source/target TDE secrets on the server.');
       if(project.operation==='upgrade') {
+        const delay=get('rac_start_time_sleep_in_seconds');
+        if(profile.behavior?.haTopology&&delay!=null&&(!/^\d+$/.test(delay)||Number(delay)<60||Number(delay)>2147483647))warn('rac-start-delay','invalid RAC startup wait falls back to 60 seconds in this JAR; use an integer from 60 to 2147483647.');
         if(yes(get('create_oracle_home')))for(const name of ['target_home','target_version','download_folder'])if(!get(name)&&!(name==='download_folder'&&get('folder')))error('upgrade-home','create_oracle_home requires '+name+'.',name);
         if(j.scenario==='pdb_upgrade'&&!get('pdbs'))error('pdb-upgrade','select the PDBs already present in the target CDB.','pdbs');
         if(j.scenario==='refreshable_noncdb'&&!get('source_dblink'))error('clone-link','supply the non-CDB source database link.','source_dblink');

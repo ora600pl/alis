@@ -49,9 +49,11 @@ The generated plan includes `-patch -load_password`, the MOS console dialogue, `
 
 ## Evidence and boundaries
 
-The inspected binary is **AutoUpgrade 26.5.260807**, built 2026-08-07. The investigation combined manifest/help/templates, parameter registries, selected validators and execution consumers, CFR decompilation, Oracle documentation, and articles by Mike Dietrich, Daniel Overby Hansen and Rodrigo Jorge. [Profile evidence and update procedure](docs/PROFILE.md).
+Choose **AutoUpgrade 26.6.260925** (built 2026-09-25) or **26.5.260807** in Plan or the sidebar. The selection controls parameters, patch syntax, validation and the runbook; saved projects keep their profile. [26.6 changes and evidence](docs/AUTOUPGRADE-26.6.md).
 
-The implementation has **127 Node tests, 7 Python tests and 14 generated-file comparisons against the supplied JAR parser**. [Validation record](docs/VALIDATION.md).
+26.6 adds download choices for CPAT, DBSAT, Exadata, Enterprise Manager and GI images, 21c CSPU support, RAC startup timing, SEHA/RAC One Node guidance, clone PATH_PREFIX handling and explicit resume commands. Removed or unavailable parameters block export when changing profiles. The investigation combined manifest/help/templates, parameter registries, selected validators and execution consumers, CFR decompilation, Oracle documentation, and articles by Mike Dietrich, Daniel Overby Hansen and Rodrigo Jorge. [Profile evidence and update procedure](docs/PROFILE.md).
+
+The implementation has **176 Node tests, 7 Python tests, 200 real-JAR contract comparisons and 36 parser read-backs across both builds**. [Validation record](docs/VALIDATION.md).
 
 A green status means that ALIS's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
 

@@ -51,6 +51,7 @@
     ['-follower','Internal coordination option, not a standalone workflow exposed by the wizard.','internal']
   ].map(([name,text,kind])=>({name,text,kind}));
   const yes=v=>/^YES$/i.test(v||'');
+  function cliFor(profile){return profile.behavior?.resumeCli?[...CLI,{name:'-resume [-job <job#>]',text:'Resume all eligible jobs or one actual job ID using the original JAR and recovery state.',kind:'recovery'}]:CLI;}
   const isClone=j=>['refreshable','refreshable_noncdb'].includes(j.scenario);
   const periodic=j=>[j.values.source_dblink,...Object.values(j.pdb||{}).map(p=>p.source_dblink)].some(link=>/\s+[1-9]\d*$/.test(link||''));
   function q(project,value){return project.execution?.shell==='powershell'?"'"+String(value).replaceAll("'","''")+"'":"'"+String(value).replaceAll("'","'\\''")+"'";}
@@ -78,17 +79,25 @@
     const download=project.jobs.some(j=>{const v=n=>C.effective(project,j,n,profile).value;return (project.operation==='patch'||yes(v('create_oracle_home')))&&!/^GOLDIMAGE:/i.test(v('patch')||'')&&(project.mode==='download'||yes(v('download')));});
     if(download){
       add('Load MOS credentials','Download host / Oracle software owner','Create or open the wallet at global.keystore. Enter wallet and MOS passwords only at the terminal prompts. This is an interactive session.',configCommand(project,'-load_password'),'shell',['mos']);
-      add('Complete the password-loader dialogue','MOS> console','Replace YOUR_MOS_USER if not supplied. Enter the MOS secret at the hidden prompt. list checks connectivity. On save/exit choose auto-login '+(e.autologin||'YES')+'. CSI is optional for this profile; add it only when your support setup requires it. Auto-login SHARED must be an intentional cross-host choice.', 'add -user '+(e.mosUser||'YOUR_MOS_USER')+(e.csi?'\nadd -csi '+e.csi:'')+'\nlist\nsave\nexit','console',['mos','release']);
+      add('Complete the password-loader dialogue','MOS> console','Replace YOUR_MOS_USER if not supplied. Enter the MOS secret at the hidden prompt. list checks connectivity. On save/exit choose auto-login '+(e.autologin||'YES')+'. '+(profile.behavior?.strictPatchSyntax?'This build ignores add -csi.':'CSI is optional for this profile; add it only when your support setup requires it.')+' Auto-login SHARED must be an intentional cross-host choice.', 'add -user '+(e.mosUser||'YOUR_MOS_USER')+(e.csi&&!profile.behavior?.strictPatchSyntax?'\nadd -csi '+e.csi:'')+'\nlist\nsave\nexit','console',['mos','release']);
+      if(profile.behavior?.resumeCli)add('Check ARU authentication availability','Download host','This build contains device-flow authentication, but its production credential loader rejects add -no_password. Use add -user and the hidden password prompt for production. Do not put passwords, device codes or tokens in ALIS. In 26.6 add -csi is ignored.','','manual');
     }
     if(project.jobs.some(j=>j.context?.tde&&j.context.tde!=='none')){
       add('Load database encryption secrets','Oracle software owner','Use the password loader help to select the discovered source and target databases and their keystore types. Supply TDE/OKV/catalog secrets only in the loader. A MOS credential does not replace a TDE wallet password.',configCommand(project,'-load_password')+'\n# In the loader: help, list, add (for the required database), save, exit','shell',['parameters']);
     }
     for(const j of project.jobs.filter(j=>j.values.sid&&(j.context?.os==='windows'||String(C.effective(project,j,'platform',profile).value).toUpperCase()==='WINDOWS.X64')))add('Prepare Windows execution credentials for '+j.prefix,'Windows host','Use the SID-specific credential loader and retain its reported file path in wincredential. The named service account must exist already.',configCommand(project,'-load_win_credential '+q(project,j.values.sid)));
-    if(download&&project.operation==='patch')add('Download and inspect the media','Download host','This downloads software; it does not apply database changes. Review patch inventory/patches_info.json and keep companion metadata with the files. Oracle service availability and entitlements are checked here.',C.command(project,'download'),'shell',['downloads']);
+    if(download&&project.operation==='patch'){
+      add('Download and inspect the media','Download host','This downloads software; it does not apply database changes. Review patch inventory/patches_info.json and keep companion metadata with the files. Oracle service availability and entitlements are checked here.',C.command(project,'download'),'shell',['downloads']);
+      if(profile.behavior?.resumeCli){
+        const parts=project.jobs.flatMap(j=>C.patchParts(C.effective(project,j,'patch',profile).value,profile));
+        if(parts.some(t=>['CPAT','DBSAT','EXAPATCHMGR','EXAQFSDP','OEM','GI'].includes(t.type)))add('Verify the selected download products','Media owner','Selections: '+parts.map(t=>t.token).join(', ')+'. CPAT, DBSAT, Exadata tools/bundles and OEM packages are downloaded for their separate product procedures. GI downloads a Grid Infrastructure image by default; gold_image=NO requests the GI RU patch instead. No GI, Exadata or OEM deployment is generated. TOOLS retains AU, OPATCH, SQLCL, CVU and AHF; add CPAT or DBSAT explicitly.','','manual');
+        if(parts.some(t=>t.type==='SQLCL'||t.type==='TOOLS'))add('Review SQLcl checksum verification','Download owner','26.6 compares the SQLcl download with the published checksum and warns on verification failure. Inspect that result before using the tool.','','manual');
+      }
+    }
     if(project.operation==='patch'&&project.mode!=='download'){
       add('Check the installation source','Target software host','Use a matching-platform base release plus patches, an Oracle-supplied image, or the selected local Gold Image. AUTO can fall back. When offline, preserve the complete staged media directory. Custom GOLDIMAGE input is exclusive; its patch level is already baked in.','','manual',['gold','own-gold']);
       if(project.mode==='create_home'||project.mode==='deploy'){
-        add('Create the Oracle home','Target host / Oracle software owner','Run on the installation platform. AutoUpgrade installs software and applies the chosen media. A software-only job does not create a database.',C.command(project,'create_home'),'shell',['empty-home']);
+        add('Create the Oracle home','Target host / Oracle software owner','Run on the installation platform. AutoUpgrade installs software and applies the chosen media. A software-only job does not create a database.'+(profile.behavior?.createHomePrechecks?' In 26.6 create_home runs its prechecks; review failures before proceeding.':''),C.command(project,'create_home'),'shell',['empty-home']);
         const rootCommands=[];
         if(!powershell)for(const j of project.jobs){const home=C.effective(project,j,'target_home',profile).value,inv=C.effective(project,j,'home_settings.inventory_location',profile).value;if(inv&&!inv.includes('%'))rootCommands.push('# Only if requested for this inventory\n'+q(project,inv.replace(/\/$/,'')+'/orainstRoot.sh'));if(home&&!home.includes('%'))rootCommands.push('# Only if requested by AutoUpgrade\n'+q(project,home.replace(/\/$/,'')+'/root.sh'));}
         add('Complete privileged installation steps','root / installation administrator','Execute only the scripts and node order requested by AutoUpgrade. Inspect rootsh.log/rootsh.json at the path printed for this job. If target_home contains placeholders, use the resolved script paths from those outputs. Existing sudo configuration may let AutoUpgrade handle this step.',[...new Set(rootCommands)].join('\n'),'manual',['empty-home']);
@@ -97,12 +106,15 @@
     }
     for(const j of project.jobs.filter(isClone)){
       add('Prepare the source link for '+j.prefix,'Source database and target CDB root','Provision a dedicated link user through your approved secret process. On the source it needs the privileges appropriate to cloning (including CREATE SESSION, CREATE PLUGGABLE DATABASE, SELECT_CATALOG_ROLE and READ on SYS.ENC$ for the documented path). Create the link in the target root to the intended source service. Common users require matching container grants. Verify connectivity from all RAC instances. Password SQL is deliberately not stored in a browser artifact.','','manual',['refresh']);
+      if(profile.behavior?.clonePathPrefix)add('Verify inherited PATH_PREFIX for '+j.prefix,'Source and target owners','26.6 reads the source PATH_PREFIX over the database link and includes it when creating the clone. Verify that directory and its access on the target. This behavior is automatic; PATH_PREFIX is not a new AutoUpgrade configuration key.','','manual');
     }
     if(sp){
       artifacts.push({name:sp.fileName,type:'source configuration',content:C.renderConfig(sp)});
       if(!['upgrade','postfixups'].includes(project.mode))add('Analyze the source','Source host / Oracle software owner','Copy the separate source configuration to the source host. Its source_home is the real source installation; the target-side placeholder path is not reused.',C.command(sp,'analyze'),'shell',['refresh']);
     }
     if(!soft){
+      if(profile.behavior?.haTopology&&project.jobs.some(j=>['seha','racone'].includes(j.context?.topology)))add('Coordinate SEHA / RAC One Node','Cluster administrators','26.6 supports SEHA and starts RAC One Node on the node running AutoUpgrade. Verify the active node, service relocation, failover state and maintenance window before proceeding. These topology choices are runbook context, not configuration parameters.','','manual');
+      if(profile.behavior?.sameRuDeploy&&project.operation==='patch')add('Confirm the patch maintenance window','Database and application owners','26.6 permits deploying on the same RU; that does not prove that the requested binaries or SQL patches are already applied. Review analyze findings, expected service impact and customer actions for the maintenance window.','','manual');
       if(project.jobs.some(j=>j.context?.role==='standby'))add('Coordinate Data Guard','Primary and standby administrators','Check role and broker state. Prepare matching homes on the standby and follow the chosen primary/standby sequence. For PDB migration, verify whether recovery is enabled or deferred; do not claim standby protection before restore/apply verification.','','manual',['parameters']);
       if(project.jobs.some(j=>j.context?.topology==='rac'||/^(AUTO|REQUIRED|FORCE)$/i.test(j.values.rac_rolling||'')))add('Verify RAC readiness and service draining','Cluster administrators','Check all instances, SSH, matching home paths, installer groups and patch eligibility. REQUIRED enforces rolling eligibility; AUTO may fall back. Review client reconnect behavior and the chosen drain_timeout.','','manual',['rolling']);
       const stagedRemote=project.jobs.some(j=>yes(j.values.target_is_remote)&&!isClone(j));
@@ -127,12 +139,13 @@
         }
       }
     }
-    if(project.mode==='download')add('Use the staged files','Download host','Retain patches_info.json and all generated metadata. Download completion does not prove installability. Start a separate fresh-home or patch project using this media directory; use download=NO on an offline host.','','manual',['downloads']);
+    const productMedia=profile.behavior?.strictPatchSyntax&&project.jobs.some(j=>C.patchParts(C.effective(project,j,'patch',profile).value,profile).some(t=>['CPAT','DBSAT','EXAPATCHMGR','EXAQFSDP','OEM','GI'].includes(t.type)));
+    if(project.mode==='download')add('Use the staged files','Download host',productMedia?'Retain patches_info.json and companion metadata. Use each tool or GI/Exadata/OEM package with its own product procedure. These packages are not database home installers. If database patches were also downloaded, prepare a separate matching database-home or patch project for that media.':'Retain patches_info.json and all generated metadata. Download completion does not prove installability. Start a separate fresh-home or patch project using this media directory; use download=NO on an offline host.','','manual',['downloads']);
     else add('Verify the result','Operation owner','Inspect the final summary and reported log paths, Oracle inventory and SQL patch registry where a database was changed. Complete application, service and backup checks. A software-only home install creates no database. A listener is created only when configured.','','manual');
     const ids=e.jobIds||'JOB_ID',toolbox=[
       {title:'Inspect checks',text:'Read available checks for this operation.',code:base(project)+' -listchecks'},
       {title:'Collect logs',text:'Review archives before sharing them with support.',code:configCommand(project,'-zip')},
-      {title:'Resume the same job',text:'Use the same JAR, configuration, mode and recovery/log location. Do not clear recovery state.',code:C.command(project,project.mode)},
+      {title:'Resume the same job',text:'Use the same JAR, configuration, mode and recovery/log location. Do not clear recovery state.'+(profile.behavior?.resumeCli?' -job accepts one actual job ID; omit it to resume eligible jobs.':''),code:C.command(project,project.mode)+(profile.behavior?.resumeCli?' -resume'+(e.jobIds?' -job '+e.jobIds.split(',')[0]:''):'')},
       {title:'Restore selected jobs',text:'Recovery only: needs applicable AutoUpgrade recovery state and restore capability.',code:configCommand(project,'-restore -jobs '+ids)},
       {title:'Datapatch rollback',text:'Recovery only: verify this is a supported datapatch rollback, not a major-release downgrade.',code:configCommand(project,'-rollback -jobs '+ids)},
       {title:'Clear recovery data',text:'State reset only after verified manual recovery. This discards job recovery data; do not use it to fix a routine resume.',code:configCommand(project,'-clear_recovery_data -jobs '+ids)}
@@ -164,5 +177,5 @@
     return p;
   }
   function previewCommand(project,profile){const mode=C.initialMode(project),source=mode==='analyze'?sourceProject(project,profile):null;return C.command(source||project,mode);}
-  return {SOURCES,GUIDES,CLI,runbook,markdown,sourceProject,base,configCommand,exampleProject,previewCommand};
+  return {SOURCES,GUIDES,CLI,cliFor,runbook,markdown,sourceProject,base,configCommand,exampleProject,previewCommand};
 });
