@@ -33,7 +33,7 @@ Each of the **12 workflows** has a complete, editable example. The wizard includ
 3. A separate source-side configuration for clone analyze/fixups, using the real source Oracle home.
 4. POSIX or PowerShell commands, with interactive console steps distinguished from shell commands. Recovery commands remain in a separate toolbox.
 5. A Markdown runbook containing the instructions and configuration files; a print/PDF layout; an editable ALIS JSON project.
-6. An Ansible ZIP for one existing Linux single-instance OUTOFPLACE patch job, with inventory, original configuration, prepare/analyze/deploy/verify playbooks, evidence collection, explicit resume and a local simulator. Select Linux or Oracle Linux 9 and Single instance under Environment. Under Runbook → Automate with Ansible, enter the execution host, SSH user, Oracle software owner and working directory, then select Download Ansible bundle .zip. [Step-by-step guide](templates/ansible/README.md).
+6. An Ansible ZIP for one existing Linux single-instance OUTOFPLACE patch job, with inventory, original configuration, a complete patch.yml plus prepare/analyze/download/create_home/deploy/verify playbooks, evidence collection, explicit resume and a local simulator. Select Linux or Oracle Linux 9 and Single instance under Environment. Under Runbook → Automate with Ansible, enter the execution host, SSH user, Oracle software owner and working directory, then select Download Ansible bundle .zip. [Step-by-step guide](templates/ansible/README.md).
 
 All documentation, generated runbooks and Ansible bundle instructions are in English. The selected 26.5 or 26.6 profile pins the JAR build and configuration. The Ansible runner checks fresh stage/check reports, the active Oracle home, binary inventory and SQL patch registry. Recovery state remains on the execution host; a completed patch cycle does not deploy again. Start with `ansible-playbook test-local.yml` to learn the workflow locally before preparing the JAR and auto-login keystore on a database host.
 
@@ -68,7 +68,7 @@ Choose **AutoUpgrade 26.6.260925** (built 2026-09-25) or **26.5.260807** in Plan
 
 26.6 adds download choices for CPAT, DBSAT, Exadata, Enterprise Manager and GI images, 21c CSPU support, RAC startup timing, SEHA/RAC One Node guidance, clone PATH_PREFIX handling and explicit resume commands. Removed or unavailable parameters block export when changing profiles. The investigation combined manifest/help/templates, parameter registries, selected validators and execution consumers, CFR decompilation, Oracle documentation, and articles by Mike Dietrich, Daniel Overby Hansen and Rodrigo Jorge. [Profile evidence and update procedure](docs/PROFILE.md).
 
-The implementation has **254 Node tests, 32 Python tests, 200 real-JAR contract comparisons and 38 parser read-backs across both builds**, plus actual Ansible playbook runs against a local simulator. [Validation record](docs/VALIDATION.md).
+The implementation has **255 Node tests, 44 Python tests, 200 real-JAR contract comparisons and 38 parser read-backs across both builds**, plus actual Ansible playbook runs against a local simulator. [Validation record](docs/VALIDATION.md).
 
 A green status means that ALIS's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
 
@@ -89,7 +89,7 @@ node --check site/assets/workflows.js
 node --check site/assets/ansible.js
 ```
 
-Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same five syntax checks and four scenarios: success, failed analysis, failed native stage and failed SQL patches. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
+Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same eight syntax checks and eight scenarios: success, failed analysis, missing downloads, checksum mismatch, unfinished root scripts, failed native stage, failed SQL patches and interruption, followed by global resume and a repeated complete cycle. The simulator runs patch.yml itself with a localhost-only host selector. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
 
 Optional parser comparison (requires a separately obtained Oracle JAR and a JDK):
 

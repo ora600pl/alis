@@ -49,14 +49,25 @@ class RunnerTests(unittest.TestCase):
         plan.update(changes)
         self.plan.write_text(json.dumps(plan))
 
+    def software(self):
+        for action in ('analyze', 'download', 'create_home'):
+            self.success(action)
+
+    def modes(self):
+        path = self.root / 'commands.jsonl'
+        commands = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+        return [command[command.index('-mode') + 1] for command in commands]
+
     def test_complete_cycle_and_completed_deploy_are_idempotent(self):
         self.success('prepare')
         self.assertTrue(self.success('analyze')['changed'])
+        self.assertTrue(self.success('download')['changed'])
+        self.assertTrue(self.success('create_home')['changed'])
         self.assertTrue(self.success('deploy')['changed'])
         self.assertFalse(self.success('verify')['changed'])
         self.assertFalse(self.success('deploy')['changed'])
         commands = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
-        self.assertEqual(len(commands), 2)
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
         self.assertTrue(all('-noconsole' in command for command in commands))
         verification = json.loads((self.run / 'results/verification.json').read_text())
         self.assertEqual(verification['sql_patch_ids'], ['37960098'])
@@ -88,23 +99,23 @@ class RunnerTests(unittest.TestCase):
                     path.unlink(missing_ok=True)
 
     def test_stage_failure_with_java_rc_zero_is_rejected(self):
-        self.success('analyze')
+        self.software()
         self.fault('status')
         self.failure('deploy', 'unsuccessful stage')
         self.assertIn('return code is zero', (self.run / 'results/deploy.log').read_text())
 
     def test_sqlpatch_failure_with_java_rc_zero_is_rejected(self):
-        self.success('analyze')
+        self.software()
         self.fault('sqlpatch')
         self.failure('deploy', 'unsuccessful action')
 
     def test_missing_pdb_sqlpatch_is_rejected(self):
-        self.success('analyze')
+        self.software()
         self.fault('missing-pdb')
         self.failure('deploy', 'one or more containers')
 
     def test_closed_pdb_prevents_claiming_complete_verification(self):
-        self.success('analyze')
+        self.software()
         self.fault('closed-pdb')
         self.failure('deploy', 'Closed PDBs')
         commands = (self.root / 'commands.jsonl').read_text()
@@ -114,12 +125,12 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(commands, (self.root / 'commands.jsonl').read_text())
 
     def test_stale_status_cannot_certify_a_new_operation(self):
-        self.success('analyze')
+        self.software()
         self.fault('stale')
         self.failure('deploy', 'stale AutoUpgrade')
 
     def test_incomplete_progress_is_rejected(self):
-        self.success('analyze')
+        self.software()
         self.fault('incomplete')
         self.failure('deploy', '100%')
 
@@ -149,7 +160,7 @@ class RunnerTests(unittest.TestCase):
         self.failure('deploy', 'another patch cycle')
 
     def test_no_automatic_retry_after_an_interruption(self):
-        self.success('analyze')
+        self.software()
         self.fault('interrupted')
         self.failure('deploy', 'rc=7')
         commands = (self.root / 'commands.jsonl').read_text()
@@ -159,9 +170,9 @@ class RunnerTests(unittest.TestCase):
         self.assertIn('-resume', json.loads((self.root / 'commands.jsonl').read_text().splitlines()[-1]))
 
     def test_old_profile_resumes_without_the_new_resume_cli(self):
-        self.change_plan(profile='26.5.260807', resume_cli=False)
+        self.change_plan(profile='26.5.260807', resume_cli=False, create_home_prechecks=False)
         (self.root / 'profile.txt').write_text('26.5.260807')
-        self.success('analyze')
+        self.software()
         self.fault('interrupted')
         self.failure('deploy', 'rc=7')
         self.success('deploy', '--resume')
@@ -176,12 +187,19 @@ class RunnerTests(unittest.TestCase):
             self.failure('analyze', 'Another ALIS process')
 
     def test_pinned_ru_must_match_inventory(self):
-        self.change_plan(pinned_ru='19.29')
+        self.change_plan(pinned_ru='19.28')
         self.success('analyze')
-        self.failure('deploy', 'pinned RU 19.29')
+        self.success('download')
+        self.fault('home-inventory')
+        self.failure('create_home', 'pinned RU 19.28')
+
+    def test_correct_pinned_ru_accepts_full_inventory_version_with_date(self):
+        self.change_plan(pinned_ru='19.28')
+        self.software()
+        self.success('deploy')
 
     def test_online_patching_requires_a_prepared_autologin_wallet(self):
-        wallet = self.root / 'wallet'
+        wallet = self.root / 'missing-wallet'
         self.change_plan(download=True, keystore=str(wallet))
         self.failure('prepare', 'cwallet.sso')
         wallet.mkdir()
@@ -191,6 +209,101 @@ class RunnerTests(unittest.TestCase):
     def test_a_real_plan_cannot_accidentally_use_fake_tools(self):
         self.change_plan(simulation=False)
         self.failure('prepare', 'Simulation requires both')
+
+    def test_each_phase_requires_all_previous_phases_even_with_resume(self):
+        self.failure('download', 'Run analyze.yml successfully')
+        self.failure('create_home', 'Run analyze.yml successfully')
+        self.success('analyze')
+        self.failure('create_home', 'Run download.yml successfully')
+        self.failure('deploy', 'Run download.yml successfully')
+        self.success('download')
+        self.failure('deploy', 'Run create_home.yml successfully')
+        self.failure('deploy', 'Run create_home.yml successfully', '--resume', '--cycle')
+        self.assertEqual(self.modes(), ['analyze', 'download'])
+
+    def test_download_is_checked_without_reusing_analyze_status(self):
+        self.success('analyze')
+        self.fault('download')
+        self.failure('download', 'Missing download metadata')
+        self.failure('create_home', 'Run download.yml successfully')
+        self.assertEqual(self.modes(), ['analyze', 'download'])
+
+    def test_wrong_download_checksum_blocks_home_and_deploy(self):
+        self.success('analyze')
+        self.fault('checksum')
+        self.failure('download', 'checksum differs')
+        self.failure('deploy', 'Run download.yml successfully')
+        self.assertEqual(self.modes(), ['analyze', 'download'])
+
+    def test_changed_media_blocks_a_verified_home_from_deploying(self):
+        self.software()
+        (self.root / 'media/simulated-home.zip').write_text('replaced')
+        self.failure('deploy', 'file size differs')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
+
+    def test_unfinished_or_missing_root_stage_blocks_deploy(self):
+        self.success('analyze')
+        self.success('download')
+        self.fault('root')
+        self.failure('create_home', 'unsuccessful stage')
+        self.failure('deploy', 'Run create_home.yml successfully')
+        self.fault('missing-root')
+        self.failure('create_home', 'ROOTSH', '--resume')
+        self.failure('deploy', 'Run create_home.yml successfully')
+
+    def test_home_creation_must_leave_the_database_on_the_source_home(self):
+        self.success('analyze')
+        self.success('download')
+        self.fault('switched-home')
+        self.failure('create_home', 'database-after-create_home failed')
+        self.failure('deploy', 'Run create_home.yml successfully')
+
+    def test_missing_target_binaries_cannot_certify_home_creation(self):
+        self.success('analyze')
+        self.success('download')
+        self.fault('missing-home')
+        self.failure('create_home', 'home is incomplete')
+        commands = self.modes()
+        (self.root / 'target/bin/oracle').write_text('SIMULATION ONLY')
+        self.success('create_home', '--resume')
+        self.assertEqual(commands, self.modes())
+
+    def test_home_configuration_is_immutable(self):
+        (self.run / 'autoupgrade.home.cfg').write_text('changed')
+        self.failure('analyze', 'Home-preparation configuration changed')
+
+    def test_offline_download_validates_local_media_without_network_command(self):
+        self.change_plan(download=False)
+        import zipfile
+        with zipfile.ZipFile(self.root / 'media/local-home.zip', 'w') as archive:
+            archive.writestr('simulation', 'ALIS SIMULATION ONLY')
+        self.success('analyze')
+        self.assertFalse(self.success('download')['changed'])
+        self.success('create_home')
+        self.success('deploy')
+        self.assertEqual(self.modes(), ['analyze', 'create_home', 'deploy'])
+
+    def test_global_resume_skips_successes_and_starts_remaining_phases(self):
+        self.success('analyze')
+        self.fault('download')
+        self.failure('download', 'Missing download metadata')
+        self.fault('none')
+        for action in ('analyze', 'download', 'create_home', 'deploy'):
+            self.success(action, '--resume', '--cycle')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'download', 'create_home', 'deploy'])
+        commands = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
+        self.assertNotIn('-resume', commands[2])
+        for action in ('analyze', 'download', 'create_home', 'deploy'):
+            self.success(action, '--cycle')
+        self.assertEqual(len(self.modes()), 5)
+
+    def test_completed_cycle_verifies_the_database_without_requiring_media_again(self):
+        self.software()
+        self.success('deploy')
+        (self.root / 'media/simulated-home.zip').unlink()
+        for action in ('prepare', 'analyze', 'download', 'create_home', 'deploy', 'verify'):
+            self.assertFalse(self.success(action, '--cycle')['changed'])
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
 
 
 if __name__ == '__main__':

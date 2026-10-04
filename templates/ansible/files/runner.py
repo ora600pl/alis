@@ -11,11 +11,17 @@ import signal
 import subprocess
 import sys
 import time
+import zipfile
+
+PHASES = ('analyze', 'download', 'create_home', 'deploy')
 
 
 def digest(path):
     with open(path, 'rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest() if hasattr(hashlib, 'file_digest') else hashlib.sha256(stream.read()).hexdigest()
+        checksum = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            checksum.update(chunk)
+        return checksum.hexdigest()
 
 
 def save(path, value):
@@ -51,6 +57,10 @@ def check_status(status, progress, plan, mode):
     require(all(type(stage.get('status')) is int and stage['status'] == 0 and stage.get('errors') == [] for stage in stages), 'AutoUpgrade reported an unsuccessful stage. Inspect status.json and the operation log.')
     names = {stage.get('stageName') for stage in stages}
     required = {'PRECHECKS'} if mode == 'analyze' else {'DB_PATCHING', 'POSTCHECKS'}
+    if mode == 'create_home':
+        required = {'INSTALL', 'OH_PATCHING', 'OPTIONS', 'ROOTSH'}
+        if plan.get('create_home_prechecks'):
+            required.add('PRECHECKS')
     require(required <= names, 'Missing required AutoUpgrade stages: ' + ', '.join(sorted(required - names)))
     require(ongoing.get('totalPercentCompleted') == 100, 'AutoUpgrade job has not reached 100%.')
     require(isinstance(ongoing.get('stages'), list) and ongoing['stages'] and all(isinstance(s, dict) and str(s.get('percentCompleted')) == '100' for s in ongoing['stages']), 'AutoUpgrade has unfinished stages.')
@@ -96,12 +106,15 @@ class Runner:
         self.results = self.root / 'results'
         self.results.mkdir(mode=0o700, exist_ok=True)
         self.plan = json.loads(Path(args.plan).read_text(encoding='utf-8'))
+        require(self.plan.get('format') == 2, 'Export a new bundle for the explicit four-phase workflow. Keep an existing cycle with its original runner.')
         self.plan_hash = digest(args.plan)
         require(args.plan_sha == self.plan_hash, 'The staged plan differs from this bundle.')
         require(bool(self.plan.get('simulation')) == args.simulation, 'Simulation requires both a simulation plan and --simulation. Real plans never use the simulator.')
         self.simulation = args.simulation
         self.config = self.root / 'autoupgrade.cfg'
         require(not self.config.is_symlink() and digest(self.config) == self.plan['config_sha256'], 'Configuration changed. Use the original bundle to resume.')
+        self.home_config = self.root / 'autoupgrade.home.cfg'
+        require(not self.home_config.is_symlink() and digest(self.home_config) == self.plan['home_config_sha256'], 'Home-preparation configuration changed. Use the original bundle to resume.')
         self.state_path = self.root / 'state.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {'plan_sha256': self.plan_hash, 'operations': {}}
         require(self.state.get('plan_sha256') == self.plan_hash, 'This directory belongs to another patch cycle.')
@@ -184,24 +197,112 @@ class Runner:
             save(self.results / (mode + '-' + name + '.json'), reports[name])
         return check_status(reports['status'], reports['progress'], self.plan, mode)
 
+    def media(self, started=None, previous=None):
+        folder = Path(self.plan['folder'])
+        manifest = folder / 'patches_info.json'
+        files = {}
+        if self.plan['download']:
+            require(manifest.is_file() and not manifest.is_symlink(), 'Missing download metadata: ' + str(manifest))
+            if started is not None:
+                require(manifest.stat().st_mtime >= started, 'Stale download metadata; this download was not certified.')
+            metadata = json.loads(manifest.read_text(encoding='utf-8'))
+            save(self.results / 'download-patches_info.json', metadata)
+            require(isinstance(metadata, dict) and metadata.get('patchFolder') == str(folder) and isinstance(metadata.get('patches'), list) and metadata['patches'] and all(isinstance(patch, dict) for patch in metadata['patches']), 'Unknown or mismatched download metadata.')
+            ru = self.plan.get('pinned_ru')
+            if ru:
+                require(any(re.fullmatch(re.escape(ru) + r'(?:\.\d+)*', str(patch.get('releaseUpdate', ''))) for patch in metadata['patches']), 'Download metadata does not contain the pinned RU ' + ru)
+            for patch in metadata['patches']:
+                require(isinstance(patch.get('files'), list) and patch['files'], 'Download metadata has no files.')
+                for entry in patch['files']:
+                    require(isinstance(entry, dict), 'Unknown download file metadata.')
+                    name = entry.get('name', '')
+                    require(isinstance(name, str) and name and Path(name).name == name and name not in ('.', '..'), 'Invalid media filename in download metadata.')
+                    path = folder / name
+                    require(path.is_file() and not path.is_symlink() and path.stat().st_size > 0, 'Missing downloaded file: ' + name)
+                    if 'size' in entry:
+                        require(path.stat().st_size == entry['size'], 'Downloaded file size differs: ' + name)
+                    checksum = digest(path)
+                    expected = entry.get('checksum-256')
+                    if expected:
+                        require(isinstance(expected, str) and re.fullmatch(r'[a-fA-F0-9]{64}', expected), 'Unknown SHA-256 checksum for ' + name)
+                        require(checksum.lower() == expected.lower(), 'Downloaded file checksum differs: ' + name)
+                    else:
+                        expected = entry.get('checksum')
+                        require(isinstance(expected, str) and re.fullmatch(r'[a-fA-F0-9]{40}', expected), 'No published checksum for ' + name + '; review the native download before using these files.')
+                        with open(path, 'rb') as stream:
+                            sha1 = hashlib.sha1()
+                            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                                sha1.update(chunk)
+                        require(sha1.hexdigest().lower() == expected.lower(), 'Downloaded file checksum differs: ' + name)
+                    files[name] = checksum
+        else:
+            # Offline inputs may be local Gold Images without Oracle download metadata.
+            for path in sorted(folder.iterdir()):
+                if path.is_file() and not path.is_symlink():
+                    files[path.name] = digest(path)
+                    if path.suffix.lower() == '.zip':
+                        with zipfile.ZipFile(path) as archive:
+                            require(archive.namelist() and archive.testzip() is None, 'Invalid staged ZIP: ' + path.name)
+        require(any(name.lower().endswith('.zip') for name in files), 'No software ZIP exists in the media directory.')
+        evidence = {'files_sha256': files, 'online': self.plan['download']}
+        if previous is not None:
+            require(evidence == previous, 'Patch media changed after download verification. Preserve the original cycle and inspect the files.')
+        save(self.results / 'media-verification.json', evidence)
+        return evidence
+
+    def inventory(self):
+        home = self.plan['target_home']
+        require(all((Path(home) / name).is_file() for name in ('bin/oracle', 'bin/sqlplus', 'OPatch/opatch')), 'Target Oracle home is incomplete.')
+        text = self.command([home + '/OPatch/opatch', 'lspatches'], 'inventory', home=home)
+        patches = {match[1]: match[2] for match in re.finditer(r'^\s*(\d+);(.*)$', text, re.M)}
+        sql_ids = {patch for patch, description in patches.items() if re.search(r'Database Release Update|OJVM RELEASE UPDATE', description, re.I)}
+        require(sql_ids, 'Could not identify a Database RU or OJVM in target-home inventory.')
+        pinned_ru = self.plan.get('pinned_ru')
+        if pinned_ru:
+            require(any('Database Release Update' in description and re.search(r'(?<![\d.])' + re.escape(pinned_ru) + r'(?:\.\d+)*(?![\d.])', description) for description in patches.values()), 'Target inventory does not contain the pinned RU ' + pinned_ru)
+        return patches, sql_ids
+
+    def home(self, previous=None):
+        patches, _ = self.inventory()
+        evidence = {'home': self.plan['target_home'], 'patches': patches}
+        if previous is not None:
+            require(evidence == previous, 'Target inventory changed after create_home verification.')
+        save(self.results / 'home-verification.json', evidence)
+        return evidence
+
     def execute(self, mode):
         operations = self.state['operations']
         previous = operations.get(mode)
+        resume = self.args.resume and (bool(previous) or not self.args.cycle)
         if previous and previous.get('verified'):
             if mode == 'deploy':
                 self.verify()
+            elif mode == 'download' and not operations.get('deploy', {}).get('native_complete'):
+                self.media(previous=previous['evidence'])
+            elif mode == 'create_home' and not operations.get('deploy', {}).get('native_complete'):
+                self.home(previous=previous['home'])
             return {'changed': False, 'message': mode + ' already succeeded in this patch cycle.'}
         if mode == 'deploy' and previous and previous.get('native_complete'):
             self.verify()
             return {'changed': False, 'message': 'AutoUpgrade had completed; final verification now passed without another deployment.'}
-        require(not previous or self.args.resume, 'The previous operation was interrupted or failed. Inspect its logs and use -e alis_resume=true with the original bundle.')
-        require(not self.args.resume or previous, 'There is no interrupted operation to resume.')
+        require(not previous or resume, 'The previous operation was interrupted or failed. Inspect its logs and use -e alis_resume=true with the original bundle.')
+        require(not resume or previous, 'There is no interrupted operation to resume.')
+        for prerequisite in PHASES[:PHASES.index(mode)]:
+            require(operations.get(prerequisite, {}).get('verified'), 'Run ' + prerequisite + '.yml successfully before ' + mode + '.yml.')
         self.validate_jar()
-        if not self.args.resume:
+        if not resume:
             self.prepare()
+        if mode in ('create_home', 'deploy'):
+            self.media(previous=operations['download']['evidence'])
         if mode == 'deploy':
-            require(operations.get('analyze', {}).get('verified'), 'Run analyze.yml successfully before deploy.yml.')
-        flags = [self.plan['java'], '-jar', self.plan['jar'], '-patch', '-config', str(self.config), '-mode', mode, '-noconsole']
+            self.home(previous=operations['create_home']['home'])
+        if mode == 'create_home' and previous and previous.get('native_complete'):
+            operations[mode].update(home=self.home(), verified=True, status='succeeded', ended=time.time())
+            self.database(self.plan['source_home'], 'database-after-create_home')
+            save(self.state_path, self.state)
+            return {'changed': False, 'message': 'Home creation had completed; verification now passed without another installation.'}
+        config = self.home_config if mode == 'create_home' and self.plan.get('home_config_separate') else self.config
+        flags = [self.plan['java'], '-jar', self.plan['jar'], '-patch', '-config', str(config), '-mode', mode, '-noconsole']
         if self.plan.get('settings'):
             require(digest(self.plan['settings']) == self.plan.get('settings_sha256'), 'Expert settings require a pinned settings_sha256 in plan.json.')
             flags += ['-settings', self.plan['settings']]
@@ -209,22 +310,28 @@ class Runner:
             flags += ['-debug']
         if mode == 'deploy' and self.plan.get('restore_on_fail'):
             flags += ['-restore_on_fail']
-        if self.args.resume and self.plan['resume_cli']:
+        if resume and self.plan['resume_cli'] and mode != 'download':
             flags += ['-resume']
         started = time.time()
         operations[mode] = {'started': started, 'verified': False, 'status': 'running'}
         save(self.state_path, self.state)
         try:
             self.started_action = True
-            self.command(flags, mode)
-            evidence = self.status(mode, started)
+            if mode != 'download' or self.plan['download']:
+                self.command(flags, mode)
+            evidence = self.media(started=started) if mode == 'download' else self.status(mode, started)
             operations[mode].update(native_complete=True, evidence=evidence)
             save(self.state_path, self.state)
             if mode == 'deploy':
                 self.verify(require_deploy=False)
+            elif mode == 'create_home':
+                operations[mode]['home'] = self.home()
+                self.database(self.plan['source_home'], 'database-after-create_home')
+            elif mode == 'download':
+                self.database(self.plan['source_home'], 'database-after-download')
             operations[mode].update(verified=True, status='succeeded', evidence=evidence, ended=time.time())
             save(self.state_path, self.state)
-            return {'changed': True, 'message': mode + ' completed and verified.', 'evidence': evidence}
+            return {'changed': mode != 'download' or self.plan['download'], 'message': mode + ' completed and verified.', 'evidence': evidence}
         except BaseException as error:
             operations[mode].update(status='failed', error=str(error), ended=time.time())
             save(self.state_path, self.state)
@@ -236,13 +343,7 @@ class Runner:
         self.validate_jar()
         home = self.plan['target_home']
         database = self.database(home, 'database-after')
-        inventory = self.command([home + '/OPatch/opatch', 'lspatches'], 'inventory', home=home)
-        patches = {match[1]: match[2] for match in re.finditer(r'^\s*(\d+);(.*)$', inventory, re.M)}
-        sql_ids = {patch for patch, description in patches.items() if re.search(r'Database Release Update|OJVM RELEASE UPDATE', description, re.I)}
-        require(sql_ids, 'Could not identify a Database RU or OJVM in target-home inventory.')
-        pinned_ru = self.plan.get('pinned_ru')
-        if pinned_ru:
-            require(any('Database Release Update' in description and re.search(r'(?<![\d.])' + re.escape(pinned_ru) + r'(?:\.0)*(?![\d.])', description) for description in patches.values()), 'Target inventory does not contain the pinned RU ' + pinned_ru)
+        _, sql_ids = self.inventory()
         registry = self.command([home + '/bin/sqlplus', '-L', '-S', '/ as sysdba'], 'sqlpatch', PATCH_SQL, home)
         rows = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_PATCH|')]
         require(rows and all(len(row) == 4 for row in rows), 'SQL patch registry was empty or malformed.')
@@ -278,7 +379,7 @@ class Runner:
             if self.state_path.exists():
                 self.state = json.loads(self.state_path.read_text())
                 require(self.state.get('plan_sha256') == self.plan_hash, 'Patch-cycle identity changed.')
-            result = self.execute(self.args.action) if self.args.action in ('analyze', 'deploy') else getattr(self, self.args.action)()
+            result = self.execute(self.args.action) if self.args.action in PHASES else getattr(self, self.args.action)()
             save(self.results / (self.args.action + '-result.json'), result)
             return result
         finally:
@@ -288,11 +389,13 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['prepare', 'analyze', 'deploy', 'verify'])
+    parser.add_argument('action', choices=['prepare', *PHASES, 'verify'])
     parser.add_argument('--plan', required=True)
     parser.add_argument('--plan-sha', required=True)
     parser.add_argument('--resume', action='store_true')
     parser.add_argument('--no-resume', action='store_false', dest='resume')
+    parser.add_argument('--cycle', action='store_true')
+    parser.add_argument('--single', action='store_false', dest='cycle')
     parser.add_argument('--simulation', action='store_true')
     parser.add_argument('--real', action='store_false', dest='simulation')
     args = parser.parse_args()
@@ -302,7 +405,7 @@ def main():
         result = runner.run()
         print(json.dumps(result))
         return 0
-    except (OSError, ValueError, KeyError, RuntimeError) as error:
+    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as error:
         result = {'changed': bool(runner and runner.started_action), 'error': str(error)}
         root = Path(args.plan).resolve().parent / 'results'
         if root.is_dir():

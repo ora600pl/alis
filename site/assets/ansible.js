@@ -44,7 +44,7 @@
   }
   const yaml = value => '!unsafe '+JSON.stringify(String(value));
   function playbook(action) {
-    return '---\n- name: ALIS '+action+'\n  hosts: oracle_patch\n  gather_facts: false\n  serial: 1\n  any_errors_fatal: true\n  become: "{{ alis_become | bool }}"\n  become_user: "{{ alis_oracle_user }}"\n  vars:\n    alis_action: '+action+'\n  tasks:\n    - name: Run the '+action+' workflow\n      ansible.builtin.include_tasks: tasks/run.yml\n';
+    return '---\n- name: ALIS '+action+'\n  hosts: "{{ alis_hosts | default(\'oracle_patch\') }}"\n  gather_facts: false\n  serial: 1\n  any_errors_fatal: true\n  become: "{{ alis_become | bool }}"\n  become_user: "{{ alis_oracle_user }}"\n  vars:\n    alis_action: '+action+'\n  tasks:\n    - name: Run the '+action+' workflow\n      ansible.builtin.include_tasks: tasks/run.yml\n';
   }
   async function bundle(project,profile) {
     const state=assess(project,profile);
@@ -52,12 +52,17 @@
     const a=settings(project),e=project.execution||{},job=project.jobs[0],get=n=>C.effective(project,job,n,profile).value;
     const config=C.renderConfig(project),parts=C.patchParts(get('patch')||'',profile);
     const pinnedRu=parts.find(p=>['RU','RECOMMENDED'].includes(p.type)&&p.version)?.version||'';
-    const plan={format:1,simulation:false,profile:profile.id,jar_sha256:profile.jarSha256,jar:absolute(project.jarPath)?project.jarPath:a.workDir.replace(/\/$/,'')+'/'+project.jarPath,java:e.javaPath||'java',config_sha256:await sha256(config),sid:get('sid'),source_home:get('source_home'),target_home:get('target_home'),log_dir:project.globals.global_log_dir||project.globals.autoupg_log_dir,folder:get('folder')||get('download_folder'),download:/^YES$/i.test(get('download')),keystore:project.globals.keystore||'',resume_cli:Boolean(profile.behavior?.resumeCli),debug:e.debug==='YES',restore_on_fail:e.restoreOnFail==='YES',pinned_ru:pinnedRu};
+    const runProject=C.clone(project);runProject.mode='deploy';runProject.fileName='autoupgrade.cfg';
+    const homeArtifact=W.runbook(runProject,profile).artifacts.find(f=>f.type==='home preparation');
+    const homeConfig=homeArtifact?.content||config;
+    const plan={format:2,simulation:false,profile:profile.id,jar_sha256:profile.jarSha256,jar:absolute(project.jarPath)?project.jarPath:a.workDir.replace(/\/$/,'')+'/'+project.jarPath,java:e.javaPath||'java',config_sha256:await sha256(config),home_config_sha256:await sha256(homeConfig),home_config_separate:Boolean(homeArtifact),create_home_prechecks:Boolean(profile.behavior?.createHomePrechecks),sid:get('sid'),source_home:get('source_home'),target_home:get('target_home'),log_dir:project.globals.global_log_dir||project.globals.autoupg_log_dir,folder:get('folder')||get('download_folder'),download:/^YES$/i.test(get('download')),keystore:project.globals.keystore||'',resume_cli:Boolean(profile.behavior?.resumeCli),debug:e.debug==='YES',restore_on_fail:e.restoreOnFail==='YES',pinned_ru:pinnedRu};
     const files=Object.entries(T).map(([name,content])=>({name,content}));
     files.push({name:'inventory.yml',content:'---\nall:\n  children:\n    oracle_patch:\n      hosts:\n        oracle_db:\n          ansible_host: '+yaml(a.host)+'\n          ansible_user: '+yaml(a.sshUser)+'\n'});
     files.push({name:'host_vars/oracle_db.yml',content:'---\nalis_oracle_user: '+yaml(a.oracleUser)+'\nalis_become: '+String(a.sshUser!==a.oracleUser)+'\nalis_work_dir: '+yaml(a.workDir)+'\nalis_python: '+yaml(a.python)+'\nansible_python_interpreter: '+yaml(a.python)+'\nalis_timeout: '+a.timeout+'\nalis_poll_interval: '+a.poll+'\nalis_resume: false\n'});
-    files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'alis-runbook.md',content:W.markdown(project,profile)});
-    for(const action of ['prepare','analyze','deploy','verify'])files.push({name:action+'.yml',content:playbook(action)});
+    files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'files/autoupgrade.home.cfg',content:homeConfig},{name:'alis-runbook.md',content:W.markdown(runProject,profile)});
+    const actions=['prepare','analyze','download','create_home','deploy','verify'];
+    for(const action of actions)files.push({name:action+'.yml',content:playbook(action)});
+    files.push({name:'patch.yml',content:'---\n# Complete patch cycle; each stage must succeed before the next starts.\n'+actions.map(action=>'- ansible.builtin.import_playbook: '+action+'.yml\n  vars:\n    alis_cycle: true').join('\n')+'\n'});
     return files.sort((x,y)=>x.name.localeCompare(y.name));
   }
   function crc32(bytes) {

@@ -35,12 +35,25 @@
         alis_bundle_dir: "{{ alis_sandbox.path }}"
         alis_work_dir: "{{ alis_sandbox.path }}/run"
 
-    - name: Run the same tasks used on a real execution host
-      ansible.builtin.include_tasks: tasks/run.yml
-      loop: [prepare, analyze, deploy, verify, deploy]
-      loop_control:
-        loop_var: alis_action
+- ansible.builtin.import_playbook: patch.yml
+  vars: &simulation_vars
+    alis_hosts: localhost
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    alis_python: "{{ ansible_playbook_python }}"
+    alis_simulation: true
+    alis_become: false
+    alis_oracle_user: simulation
+    alis_timeout: 120
+    alis_poll_interval: 1
+- ansible.builtin.import_playbook: deploy.yml
+  vars: *simulation_vars
 
+- name: Report the local simulation results
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
     - name: Show where to inspect the simulation
       ansible.builtin.debug:
         msg: "Simulation passed. Results: {{ alis_sandbox.path }}/run/results. The last deploy was skipped because this patch cycle already succeeded."

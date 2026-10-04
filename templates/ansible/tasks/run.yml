@@ -20,6 +20,7 @@
           - "{{ lookup('ansible.builtin.file', (alis_bundle_dir | default(playbook_dir)) + '/files/plan.json', rstrip=false) | hash('sha256') }}"
           - "{{ '--simulation' if (alis_simulation | default(false) | bool) else '--real' }}"
           - "{{ '--resume' if (alis_resume | default(false) | bool) else '--no-resume' }}"
+          - "{{ '--cycle' if (alis_cycle | default(false) | bool) else '--single' }}"
         expand_argument_vars: false
       async: "{{ alis_timeout | int }}"
       poll: "{{ alis_poll_interval | int }}"
@@ -27,7 +28,7 @@
         ansible_async_dir: "{{ alis_work_dir }}/async"
       register: alis_result
       changed_when: >-
-        alis_action in ['analyze', 'deploy'] and '"changed": true' in (alis_result.stdout | default(''))
+        alis_action in ['analyze', 'download', 'create_home', 'deploy'] and '"changed": true' in (alis_result.stdout | default(''))
       failed_when: false
 
     - name: Check runner result

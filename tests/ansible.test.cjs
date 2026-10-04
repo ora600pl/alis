@@ -7,8 +7,22 @@ for(const f of profiles)test('Ansible package preserves the exact selected build
   const p=example(f),files=await A.bundle(p,f),get=n=>files.find(a=>a.name===n)?.content,plan=JSON.parse(get('files/plan.json'));
   assert.equal(plan.profile,f.id);assert.equal(plan.jar_sha256,f.jarSha256);assert.equal(plan.resume_cli,!!f.behavior.resumeCli);
   assert.equal(get('files/autoupgrade.cfg'),C.renderConfig(p));assert.equal(plan.config_sha256,crypto.createHash('sha256').update(C.renderConfig(p)).digest('hex'));
-  for(const name of ['prepare.yml','analyze.yml','deploy.yml','verify.yml','test-local.yml','README.md','files/runner.py','tests/simulator.py'])assert(get(name),name);
+  for(const name of ['patch.yml','prepare.yml','analyze.yml','download.yml','create_home.yml','deploy.yml','verify.yml','test-local.yml','README.md','files/runner.py','files/autoupgrade.home.cfg','tests/simulator.py'])assert(get(name),name);
+  assert.equal(plan.format,2);
+  assert.equal(get('files/autoupgrade.home.cfg'),C.renderConfig(p));
+  assert.deepEqual([...get('patch.yml').matchAll(/import_playbook: (\w+)\.yml/g)].map(m=>m[1]),['prepare','analyze','download','create_home','deploy','verify']);
+  assert.deepEqual([...get('alis-runbook.md').matchAll(/-mode (analyze|download|create_home|deploy)(?:\s|$)/g)].map(m=>m[1]).slice(0,4),['analyze','download','create_home','deploy']);
+  assert(get('test-local.yml').includes('import_playbook: patch.yml'));
   assert(!files.some(a=>a.name.endsWith('.jar')));assert(!get('deploy.yml').includes('restore -'));
+});
+test('Gold Image output is packaged only by deploy, with both configs pinned',async()=>{
+  const p=example();p.jobs[0].values.create_gold_image='out_home.zip';
+  const files=await A.bundle(p,profiles[1]),get=n=>files.find(f=>f.name===n)?.content,plan=JSON.parse(get('files/plan.json'));
+  assert.equal(get('files/autoupgrade.cfg'),C.renderConfig(p));
+  assert(get('files/autoupgrade.home.cfg').includes('create_gold_image=NO'));
+  assert.equal(plan.home_config_separate,true);
+  assert.equal(plan.home_config_sha256,crypto.createHash('sha256').update(get('files/autoupgrade.home.cfg')).digest('hex'));
+  assert(get('alis-runbook.md').includes('autoupgrade.home.cfg'));
 });
 for(const f of profiles){
   test('database config import starts with analyze and preserves operation conflicts: '+f.id,async()=>{
