@@ -35,6 +35,14 @@ The earlier 26.5 profile retains its declarations and original behavior. Profile
 
 Declaration comparison: one addition, one removal, no changed declaration arguments. The distinct name count remains 132, with 83 upgrade and 89 patch entries including inherited common declarations. Registries were compared; the existing unsupported patch and unregistered LDAP statuses remain explicit.
 
+## Integrated upgrade home creation and Oracle images
+
+Checked again against the exact 26.6 and 26.5 JARs on 2026-10-04. Although `gold_image` and `gold_image.security_patch_level` are declared in the patch registry, upgrade home creation consumes them through its child patch process. `CreateOracleHomeActions.createConfigFile()` copies the job-prefixed entries to `autopatchlog/autopatch.cfg`; `runAutoPatch()` runs `-patch -mode download` when download is enabled, then `-patch -mode create_home`. `JointBoot` supplies cross-utility parameter names, and `UpgradeSemanticParser` recognizes dotted patch settings instead of treating them as PDB attributes.
+
+ALIS now exposes those two image fields in Media when an upgrade sets `create_oracle_home=YES`. It retains the actual upgrade registry separately, accepts and preserves those forwarded settings during import/export, and validates media using the child create-home rules. Without home creation, explicit image settings remain visible but block export until repaired. `create_oracle_home` is a boolean and must not be checked as an Oracle Home path. `create_gold_image` remains a separate patch workflow option for packaging an output archive.
+
+For an Oracle 19c source with a 19c target, pin a requested RU with `patch=RECOMMENDED:19.32` if that exact level is intended; the target directory name does not select an RU. The intended database operation should also be reviewed as a same-release patch plan. These checks verify configuration handling and inspected consumers, not live Oracle Updater access or installation.
+
 ## Reproduce the checks
 
 Obtain the Oracle JAR separately and use an existing JDK, Node and Python 3 (no npm/pip packages):

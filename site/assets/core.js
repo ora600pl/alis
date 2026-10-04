@@ -75,7 +75,11 @@
   }
   function definition(profile, operation, name) {
     const canonical = name === 'run_hcheck' ? 'run_dictionary_health' : name;
-    return profile.operations[operation].find(p => p.name === canonical) || null;
+    const registered = profile.operations[operation].find(p => p.name === canonical);
+    // These patch parameters are forwarded to autopatch.cfg by the upgrade's
+    // CreateOracleHomeActions in both reviewed builds. Keep registries distinct.
+    return registered || (operation === 'upgrade' && ['gold_image','gold_image.security_patch_level'].includes(canonical)
+      ? profile.operations.patch.find(p => p.name === canonical) : null) || null;
   }
   function describe(param) {
     const detail = (param.help ? [param.label, param.help] : DETAILS[param.name]) || [param.name.replaceAll('_', ' '), 'Advanced parameter from the inspected JAR registry. Check Oracle documentation and run analyze for environment-dependent behavior.'];
@@ -172,6 +176,7 @@
         add(other ? 'error' : 'warning', other ? 'operation' : 'unknown', key + (other ? ': belongs to the other AutoUpgrade operation. Remove it or change the operation.' : ': unrecognized parameter preserved; its meaning is not validated.'), key); continue;
       }
       if (param.status !== 'available') add('error', 'unsupported', key + ': ' + (param.status === 'unsupported' ? 'rejected by this build’s patch validator.' : 'declared but absent from this operation’s registry; support is unverified.'), key);
+      if (project.operation === 'upgrade' && prefix !== 'global' && ['gold_image','gold_image.security_patch_level'].includes(rest) && !yes(effective(project,project.jobs.find(j=>j.prefix===prefix),'create_oracle_home',profile).value)) add('error','upgrade-home-media',key+': enable create_oracle_home=YES to use Oracle-supplied image settings.',key);
       if (prefix === 'global' && param.scope === 'local') add('error', 'scope', key + ': this parameter is local only.', key);
       if (prefix !== 'global' && param.scope === 'global') add('error', 'scope', key + ': this parameter is global only.', key);
       const options = describe(param).options;
@@ -180,7 +185,7 @@
       if (param.name === 'target_version' && !/^\d+(\.\d+)*$/.test(value)) add('error','target-version',key+': use a numeric release such as 19 or 23.4.',key);
       if (param.name === 'target_pdb_copy_option' && !/^file_name_convert\s*=\s*(none|\(\s*'[^']+'\s*,\s*'[^']+'\s*(,\s*'[^']+'\s*,\s*'[^']+'\s*)*\))$/i.test(value)) add('error','copy-clause',key+': use file_name_convert=none or a list of quoted source/destination pairs. Other clauses require manual review.',key);
       if (param.name === 'start_time' && !validStartTime(value)) add('error', 'start', key + ': use NOW, a valid +1h30m delay or dd/MM/yyyy HH:mm:ss.', key);
-      if ((param.name.endsWith('_home') || param.name.endsWith('_dir') || ['keystore', 'download_folder', 'folder', 'source_base', 'target_base'].includes(param.name)) && !/^(\/|[A-Za-z]:[\\/]|global\.)/.test(value)) add('error', 'path', key + ': enter an absolute server path.', key);
+      if (param.type !== 'boolean' && (param.name.endsWith('_home') || param.name.endsWith('_dir') || ['keystore', 'download_folder', 'folder', 'source_base', 'target_base'].includes(param.name)) && !/^(\/|[A-Za-z]:[\\/]|global\.)/.test(value)) add('error', 'path', key + ': enter an absolute server path.', key);
     }
     if (project.globals.global_log_dir && project.globals.autoupg_log_dir) add('error', 'logs', 'Use one global log directory spelling; both are currently set.');
     if (!project.globals.global_log_dir && !project.globals.autoupg_log_dir) add('warning', 'logs', 'Set a dedicated global log directory to make the run location explicit.');
@@ -263,7 +268,7 @@
   function initialMode(project) { return ['download','create_home','upgrade','postfixups'].includes(project.mode)?project.mode:'analyze'; }
   // Prospective controls reuse export validation. Unrelated incomplete fields must
   // not lock the form, and existing imported conflicts must remain repairable.
-  const DEPENDENCY_CODES = new Set(['scope','operation','unsupported','profile-parameter','value','logs','grp','compatible-release','replay','scenario-settings','same-cdb','stats','workflow-mode','patch-expression','patch-ru','patch-version','download-only','patch-combination','patch-duplicate','recommended-version','gi-version','ru-version','patch-upgrade','gold-use','gold-create','gold-conflict','gold-exclusive','gold-download','gold-name','ojvm','patch-release','cspu-platform','mrp-platform','mrp-version','ojvm-ru','ol9','gold-service-ru','gold-service-version','gold-service-platform','folder-conflict','rolling-windows','rolling-single','standby-mode','target-upgrade','home-collision']);
+  const DEPENDENCY_CODES = new Set(['scope','operation','unsupported','profile-parameter','value','logs','grp','compatible-release','replay','scenario-settings','upgrade-home-media','same-cdb','stats','workflow-mode','patch-expression','patch-ru','patch-version','download-only','patch-combination','patch-duplicate','recommended-version','gi-version','ru-version','patch-upgrade','gold-use','gold-create','gold-conflict','gold-exclusive','gold-download','gold-name','ojvm','patch-release','cspu-platform','mrp-platform','mrp-version','ojvm-ru','ol9','gold-service-ru','gold-service-version','gold-service-platform','folder-conflict','rolling-windows','rolling-single','standby-mode','target-upgrade','home-collision']);
   function changeState(project, profile, change) {
     const candidate=clone(project);change(candidate);
     const signature=i=>i.code+'|'+i.key+'|'+i.text;
@@ -287,7 +292,9 @@
       if(name==='gold_image.security_patch_level'&&String(get('gold_image')).toUpperCase()==='NO')reason='Security patch level applies to Oracle-supplied images. Enable gold_image first.';
       if(['download_folder','folder'].includes(name)&&get(name==='folder'?'download_folder':'folder'))reason='The other media-directory spelling is already set. Remove it before choosing this spelling.';
     }
-    if(project.operation==='upgrade'&&['patch','download','folder','download_folder'].includes(name)&&!yes(get('create_oracle_home')))reason='Enable create_oracle_home before choosing installation media for this upgrade.';
+    if(project.operation==='upgrade'&&['patch','download','folder','download_folder','gold_image','gold_image.security_patch_level'].includes(name)&&!yes(get('create_oracle_home')))reason='Enable create_oracle_home before choosing installation media for this upgrade.';
+    if(project.operation==='upgrade'&&['gold_image','gold_image.security_patch_level'].includes(name)&&gold)reason='PATCH=GOLDIMAGE uses your local ZIP; Oracle-supplied image settings do not apply.';
+    if(project.operation==='upgrade'&&name==='gold_image.security_patch_level'&&String(get('gold_image')).toUpperCase()==='NO')reason='Security patch level applies to Oracle-supplied images. Enable gold_image first.';
     if(project.operation==='upgrade'&&['target_cdb','target_pdb_name','target_pdb_copy_option','keep_source_pdb','source_dblink'].includes(name)&&['upgrade','pdb_upgrade'].includes(j.scenario))reason='Select a migration or clone workflow before configuring PDB movement.';
     if(name==='parallel_stats_degree'&&!yes(get('dictionary_stats_before')))reason='Enable dictionary_stats_before=YES before setting its parallel degree.';
     return {disabled:Boolean(reason),reason};
@@ -436,6 +443,13 @@
         const delay=get('rac_start_time_sleep_in_seconds');
         if(profile.behavior?.haTopology&&delay!=null&&(!/^\d+$/.test(delay)||Number(delay)<60||Number(delay)>2147483647))warn('rac-start-delay','invalid RAC startup wait falls back to 60 seconds in this JAR; use an integer from 60 to 2147483647.');
         if(yes(get('create_oracle_home')))for(const name of ['target_home','target_version','download_folder'])if(!get(name)&&!(name==='download_folder'&&get('folder')))error('upgrade-home','create_oracle_home requires '+name+'.',name);
+        if(yes(get('create_oracle_home'))) {
+          // Validate the forwarded media as software preparation, retaining the
+          // upgrade operation and its settings in the generated configuration.
+          const media=clone(project);media.operation='patch';media.mode='create_home';
+          media.jobs=[clone(j)];media.jobs[0].scenario=get('source_home')?'prepare_home':'install';
+          out.push(...validateWorkflows(media,profile));
+        }
         if(j.scenario==='pdb_upgrade'&&!get('pdbs'))error('pdb-upgrade','select the PDBs already present in the target CDB.','pdbs');
         if(j.scenario==='refreshable_noncdb'&&!get('source_dblink'))error('clone-link','supply the non-CDB source database link.','source_dblink');
         if(j.scenario==='refreshable_noncdb'&&get('source_dblink')&&!/^[A-Za-z][\w.$]*(?:\s+[1-9]\d*)?$/.test(get('source_dblink')))error('clone-link','use LINK or LINK refresh_seconds.','source_dblink');
@@ -488,7 +502,7 @@
     if (!p || p.format !== FORMAT || !profiles[p.profileId] || !MODES[p.operation]?.includes(p.mode) || !Array.isArray(p.jobs) || p.jobs.length > 100) throw new Error('Unsupported or malformed ALIS project.');
     const dangerous = new Set(['__proto__', 'constructor', 'prototype']);
     const checkMap = map => { if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('Invalid settings map.'); for (const [k,v] of pairs(map)) if (dangerous.has(k) || typeof v !== 'string') throw new Error('Invalid setting in project.'); };
-    checkMap(p.globals); if(p.execution!=null)checkMap(p.execution);
+    checkMap(p.globals); if(p.execution!=null)checkMap(p.execution); if(p.automation!=null)checkMap(p.automation);
     for (const j of p.jobs) { if (typeof j.prefix !== 'string' || !SCENARIOS[j.scenario]) throw new Error('Invalid database entry.'); checkMap(j.values); if(j.context!=null)checkMap(j.context); if (!j.pdb || typeof j.pdb !== 'object' || Array.isArray(j.pdb)) throw new Error('Invalid PDB settings.'); for (const [k,v] of pairs(j.pdb)) { if (dangerous.has(k)) throw new Error('Invalid PDB name.'); checkMap(v); } }
     if (!Array.isArray(p.records) || p.records.some(r => !r || typeof r.raw !== 'string' || (r.key != null && typeof r.key !== 'string') || (r.value != null && typeof r.value !== 'string') || (r.comment != null && typeof r.comment !== 'string'))) throw new Error('Invalid imported document records.');
     for (const field of ['title','jarPath','fileName','original']) if (typeof p[field] !== 'string') throw new Error('Missing project field: ' + field);

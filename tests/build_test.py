@@ -20,7 +20,7 @@ class StaticBuildTests(unittest.TestCase):
 
     def test_offline_scripts_have_matching_csp_hashes(self):
         scripts = re.findall(r"<script>(.*?)</script>", self.offline, re.S)
-        self.assertEqual(len(scripts), 4)
+        self.assertEqual(len(scripts), 6)
         for script in scripts:
             digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
             self.assertTrue("'sha256-" + digest + "'" in self.offline, "CSP script hash mismatch: " + digest)
@@ -35,7 +35,7 @@ class StaticBuildTests(unittest.TestCase):
         self.assertLess(self.offline.index('id="step-content"'), self.offline.index('<script>'))
 
     def test_no_network_apis_or_browser_persistence(self):
-        sources = '\n'.join((ROOT / "site/assets" / name).read_text() for name in ("app.js", "core.js", "workflows.js"))
+        sources = '\n'.join((ROOT / "site/assets" / name).read_text() for name in ("app.js", "core.js", "workflows.js", "ansible.js"))
         self.assertNotRegex(sources, r'\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|localStorage|sessionStorage)\s*[.(]')
         self.assertIn("connect-src 'none'", (ROOT / "site/index.html").read_text())
 
@@ -48,7 +48,7 @@ class StaticBuildTests(unittest.TestCase):
     def test_online_assets_use_content_versions(self):
         source = (ROOT / 'site/index.html').read_text()
         links = re.findall(r'(?:src|href)="((?:assets/[^"?]+|offline\.html))([^\"]*)"', source)
-        self.assertEqual(len(links), 7)
+        self.assertEqual(len(links), 9)
         for path, version in links:
             digest = hashlib.sha256((ROOT / 'site' / path).read_bytes()).hexdigest()[:16]
             self.assertEqual(version, '?v=' + digest, path)
@@ -58,6 +58,7 @@ class StaticBuildTests(unittest.TestCase):
             root = Path(temp)
             shutil.copytree(ROOT / 'site', root / 'site')
             shutil.copytree(ROOT / 'profiles', root / 'profiles')
+            shutil.copytree(ROOT / 'templates', root / 'templates', ignore=shutil.ignore_patterns('__pycache__'))
             (root / 'tools').mkdir()
             shutil.copy2(ROOT / 'tools/build.py', root / 'tools/build.py')
             before = (root / 'site/index.html').read_text()

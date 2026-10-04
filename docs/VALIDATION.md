@@ -55,3 +55,22 @@ See [release evidence](AUTOUPGRADE-26.6.md) for 176 Node tests, 7 Python/build t
 200 Node tests (24 new dependency/runbook regressions), 9 Python build tests, 200 isolated 26.6 JAR comparisons and 36 parser readbacks across both builds passed. Browser checks covered disabled local-image patch/image controls, dynamic NO/AUTO security-level gating, download-only capture gating, invalid/valid advanced settings and importing/removing a conflicting capture request. The online and standalone offline builds produced no console warnings/errors in these checks.
 
 The supplied input-image + output-image configuration remains accepted: static CFR and independent javap inspection show CREATE_GOLD_IMAGE after installation. PATCH101 needs the captured installer output to diagnose its server-side cause. See [dependency audit](DEPENDENCIES.md). No Oracle installation or MOS/ARU request was performed.
+
+## Ansible export and upgrade target-home media — 2026-10-04
+
+**242 Node tests and 31 Python tests passed** (22 runner tests and 9 build tests). The export tests cover both reviewed profiles, unchanged configuration text, pinned JAR/configuration hashes, scope blocking, literal YAML values, project round trips and ZIP interoperability/CRC/UTF-8. Runner tests cover interruption and explicit resume for both builds, mutual exclusion, immutable cycle files, stale/mismatched/incomplete reports, a native zero exit code with failed stages or checks, failed/missing SQL patches, runtime RAC/Data Guard rejection, wallet prerequisites and repeated deployment. A closed-PDB failure can be repaired and verified without deploying again. The Gold Image upgrade regression tests cover integrated target-home installation with both profiles.
+
+Actual **ansible-core 2.21.4** and **2.19.13** executed the exported `test-local.yml` on macOS with Python 3.12. Five playbooks passed `--syntax-check`. Each Ansible version completed the local prepare → analyze → deploy → verify → repeated deploy cycle with `unreachable=0`, `failed=0`; the last deploy was skipped. Separate native-stage and SQL-patch faults produced the expected Ansible failure and fetched this run's error JSON/logs. These runs use fake Java, SQLPlus and OPatch in a fresh local temporary directory, never SSH or a database. Reproduce the same integration checks with:
+
+```sh
+python3 -m pip install 'ansible-core>=2.21,<2.22'
+python3 tools/test_ansible.py
+```
+
+CI runs this Ansible integration in addition to Node/Python checks and verifies the regenerated online/offline assets. The offline edition now contains six scripts, with deterministic CSP hashes and no application network calls.
+
+The runner's `status.json`/`progress.json` contract was inspected in the supplied 26.5 and 26.6 JARs: job identity, mode, homes, stage result/error lists, percentage completion and per-container check results. The relevant reporting classes match across those two builds. This is static evidence for those exact builds, not a captured live patch. The integrated upgrade Gold Image configuration passed isolated JAR parser readback: **23 cases for 26.6 and 15 for 26.5**, plus **200 26.6 contract comparisons**.
+
+Browser checks exercised the patch export panel, environment/host blockers, enabling export and generation of the ZIP, plus integrated Upgrade Gold Image input on the online/offline editions. No console warnings/errors were reported. ZIP bytes were independently opened and checked with Python `zipfile`; the in-app browser did not provide a completed Blob download on disk. See the beginner instructions in [Polish](../templates/ansible/README.pl.md) or [English](../templates/ansible/README.md).
+
+**No real Oracle patch, database connection, MOS request, root script or Oracle-home installation was executed.** The first export supports one Linux single-instance OUTOFPLACE cycle. Successful simulation and static validation do not establish production patch compatibility or application availability.

@@ -34,6 +34,12 @@ if(profile.behavior?.strictPatchSyntax){
   const p=W.exampleProject(profile.id,'upgrade');p.globals.rac_start_time_sleep_in_seconds='120';
   cases.push({name:'rac-delay.cfg',text:C.renderConfig(p),expected:Object.fromEntries(C.entries(p))});
 }
+{
+  const p=W.exampleProject(profile.id,'upgrade');
+  Object.assign(p.jobs[0].values,{create_oracle_home:'YES',folder:'/media',gold_image:'YES','gold_image.security_patch_level':'HIGH'});
+  if(C.validate(p,profile).some(i=>i.level==='error'))throw new Error('Invalid integrated home image');
+  cases.push({name:'upgrade-home-image.cfg',text:C.renderConfig(p),expected:Object.fromEntries(C.entries(p))});
+}
 process.stdout.write(JSON.stringify(cases));
 """
 

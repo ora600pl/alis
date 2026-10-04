@@ -25,6 +25,7 @@ Each of the **12 workflows** has a complete, editable example. The wizard includ
 3. A separate source-side configuration for clone analyze/fixups, using the real source Oracle home.
 4. POSIX or PowerShell commands, with interactive console steps distinguished from shell commands. Recovery commands remain in a separate toolbox.
 5. A Markdown runbook containing the instructions and configuration files; a print/PDF layout; an editable ALIS JSON project.
+6. An Ansible ZIP for one existing Linux single-instance OUTOFPLACE patch job, with inventory, original configuration, prepare/analyze/deploy/verify playbooks, evidence collection, explicit resume and a local simulator. Select Linux and Single instance under Environment, then fill the Ansible fields under Runbook. [Getting started](templates/ansible/README.md) · [Polish walkthrough](templates/ansible/README.pl.md).
 
 Import an existing `.cfg` to preserve comments, order and unknown settings, and review a line diff. Mode and workflow are inferred because they are not stored in a config file: verify both after import. Use **Save project** to retain planning context and execution preferences as well as configuration values. Closing the page otherwise loses the draft.
 
@@ -71,7 +72,10 @@ python3 -S -m unittest discover -s tests -p '*_test.py'
 node --check site/assets/app.js
 node --check site/assets/core.js
 node --check site/assets/workflows.js
+node --check site/assets/ansible.js
 ```
+
+Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same five syntax checks and three success/failure scenarios. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
 
 Optional parser comparison (requires a separately obtained Oracle JAR and a JDK):
 

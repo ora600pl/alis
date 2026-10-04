@@ -30,6 +30,14 @@ Przykład świeżej instalacji znajduje się w [angielskim README](README.md#fre
 
 Wyniki obejmują konfiguracje, komendy POSIX/PowerShell, kroki w konsoli AutoUpgrade, instrukcje ręczne i odsyłacze do źródeł. Narzędzia odzyskiwania są pokazane osobno od zwykłej kolejności wykonania.
 
+### Automatyzacja Ansible
+
+W planie **Patch existing databases** wybierz w Environment **Linux / Oracle Linux 9** i **Single instance**. W Runbook pojawi się sekcja **Automate with Ansible**: wpisz host, konto SSH, właściciela Oracle i katalog roboczy, a następnie pobierz **Download Ansible bundle .zip**.
+
+Pakiet zawiera `prepare.yml`, `analyze.yml`, `deploy.yml`, `verify.yml`, konfigurację z kreatora, kontrolę wyniku oraz instrukcje PL/EN. Własny JAR i auto-login keystore przygotowujesz na serwerze. Pierwszy test wykonaj lokalnie poleceniem `ansible-playbook test-local.yml`; symulator używa tych samych zadań i runnera, bez Oracle i bez połączenia z serwerem z inventory. [Instrukcja krok po kroku dla początkujących](templates/ansible/README.pl.md).
+
+Pierwsza wersja obejmuje jedną instancję Linux, OUTOFPLACE i brak Data Guard. Używa wybranego profilu 26.5 lub 26.6, pinowania JAR-a i konfiguracji, świeżych raportów etapów/kontroli, aktywnego Oracle Home, inventory i SQL patch registry. Stan pozostaje na serwerze do wznowienia; zakończony cykl nie patchuje bazy ponownie. Walidacja obejmuje rzeczywiste Ansible na symulatorze, bez wykonania patchowania Oracle.
+
 **Save project** zapisuje JSON pozwalający wrócić do pracy wraz z kontekstem środowiska. Sama konfiguracja `.cfg` nie przechowuje wybranego trybu ani tych preferencji; przy imporcie kreator je wnioskuje i trzeba je sprawdzić. Import zachowuje komentarze, kolejność i nieznane opcje, a widok **Changes** pokazuje różnice. Strona nie zapisuje projektu w localStorage.
 
 ## Na czym opiera się walidacja

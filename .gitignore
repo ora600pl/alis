@@ -4,6 +4,7 @@ __pycache__/
 *.jar
 *.class
 *.cfg
+!templates/ansible/ansible.cfg
 *.log
 review-candidate*.json
 .sites-runtime/

@@ -1,0 +1,39 @@
+- name: Check the requested working directory
+  ansible.builtin.assert:
+    that:
+      - alis_work_dir is match('^/[^\r\n]+$')
+      - alis_work_dir != '/'
+    fail_msg: Use an absolute, dedicated directory owned by the Oracle software owner.
+
+- name: Create the bundle working directories
+  ansible.builtin.file:
+    path: "{{ alis_work_dir }}/{{ item }}"
+    state: directory
+    mode: '0700'
+  loop: ['', 'results']
+
+- name: Stage immutable files without replacing an existing run
+  ansible.builtin.copy:
+    src: "{{ alis_bundle_dir | default(playbook_dir) }}/files/{{ item }}"
+    dest: "{{ alis_work_dir }}/{{ item }}"
+    force: false
+    mode: '0600'
+  loop: [plan.json, autoupgrade.cfg, runner.py]
+
+- name: Read staged checksums
+  ansible.builtin.stat:
+    path: "{{ alis_work_dir }}/{{ item }}"
+    checksum_algorithm: sha256
+  loop: [plan.json, autoupgrade.cfg, runner.py]
+  register: alis_staged
+
+- name: Keep configuration and runner unchanged for this patch cycle
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - not item.stat.islnk
+      - item.stat.checksum == (lookup('ansible.builtin.file', (alis_bundle_dir | default(playbook_dir)) + '/files/' + item.item, rstrip=false) | hash('sha256'))
+    fail_msg: This directory contains a different bundle. Use a new working directory and log directory for a new patch cycle; resume with the original bundle.
+  loop: "{{ alis_staged.results }}"
+  loop_control:
+    label: "{{ item.item }}"
