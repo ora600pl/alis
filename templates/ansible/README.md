@@ -1,6 +1,10 @@
-# ALIS Ansible bundle
+# ALIS + Ansible: your first run
 
-Run Ansible on a macOS/Linux control machine with Python 3.12–3.14. The Linux Oracle execution host needs Python 3.9–3.14, SSH and the Oracle software owner. This bundle uses only ansible-core built-in modules.
+Ansible runs on your Mac or Linux computer, called the **controller**. It sends files and commands to the Oracle server over SSH. Install Ansible only on the controller; the Linux Oracle server needs Python and an SSH account. A **playbook** is a YAML file containing an ordered set of tasks. The **inventory** lists the servers to manage. This bundle uses only modules included in `ansible-core`.
+
+## 1. Install Ansible on the controller
+
+Use Python 3.12–3.14 on the controller. The Oracle execution host needs Python 3.9–3.14. In Terminal:
 
 ```sh
 python3 -m venv ~/.venvs/alis-ansible
@@ -9,16 +13,24 @@ python3 -m pip install 'ansible-core>=2.21,<2.22'
 ansible-playbook --version
 ```
 
-Validated with ansible-core 2.21.4 and 2.19.13. Older Python 3.8 execution hosts need the older Ansible line; check its current maintenance status before choosing it. After extracting the ZIP, enter `alis-ansible/`.
+When you open a new Terminal session, activate the environment again with `source ~/.venvs/alis-ansible/bin/activate`. The bundle was validated with ansible-core 2.21.4 and 2.19.13. Older Python 3.8 execution hosts need the older Ansible line; check its current maintenance status before choosing it.
 
-## Learn locally first
+## 2. Export a bundle and learn locally
+
+In ALIS, select **Patch existing databases**. Under **Environment**, select **Linux** or **Oracle Linux 9** and **Single instance**. Complete your patch configuration. In **Runbook → Automate with Ansible**, enter the execution host, SSH user, Oracle software owner and a dedicated working directory, then select **Download Ansible bundle .zip**. Each patch cycle needs its own working directory and global log directory.
+
+Extract the ZIP and use Terminal to enter the `alis-ansible` folder. Then run:
 
 ```sh
 ansible-playbook test-local.yml --syntax-check
 ansible-playbook test-local.yml
 ```
 
-The simulator uses localhost, independent temporary files and original fake Java/SQLPlus/OPatch tools. It runs the same tasks and runner as the real playbooks, without contacting inventory hosts, Oracle or MOS. It runs prepare, analyze, deploy, verify and a second deploy, which is skipped for the completed patch cycle. Expect `failed=0` and `unreachable=0` in PLAY RECAP. Results are in the printed temporary directory and `artifacts/localhost/`.
+The simulator uses localhost, independent temporary files and fake Java/SQLPlus/OPatch tools. It runs the same tasks and runner as the real playbooks, with its own simulation configuration. It does not contact the server in `inventory.yml`, Oracle or MOS. It runs prepare → analyze → deploy → verify → a second deploy. The last deploy is skipped because the patch cycle has already succeeded.
+
+Expect `failed=0` and `unreachable=0` in `PLAY RECAP`. A positive `changed` count is normal: it reports tasks that performed work. Results are in the printed temporary directory, with copies in `artifacts/localhost/` inside the extracted bundle.
+
+To see how a failure is reported:
 
 ```sh
 ansible-playbook test-local.yml -e alis_test_failure=status
@@ -27,7 +39,7 @@ ansible-playbook test-local.yml -e alis_test_failure=sqlpatch
 
 These intentional failure tests must end with `failed=1`, even though fake Java returns zero. They demonstrate stage-status and SQL-patch verification. Each run creates a new sandbox; delete only the exact local simulation directory when finished.
 
-## Check the real bundle
+## 3. Check the bundle for your server
 
 ```sh
 ansible-inventory --graph
@@ -37,7 +49,7 @@ ansible-playbook deploy.yml --syntax-check
 ansible-playbook verify.yml --syntax-check
 ```
 
-Syntax checks do not contact the database. Review `inventory.yml`, `host_vars/oracle_db.yml`, `files/plan.json`, `files/autoupgrade.cfg` and `alis-runbook.md`. The plan pins the selected JAR build/SHA-256 and configuration checksum. YAML variable values are treated as literal data; the runner invokes argument lists without a shell.
+These commands check the file structure without executing Oracle. `inventory.yml` contains the host and SSH account; `host_vars/oracle_db.yml` contains the Oracle owner, working directory and timeout. `files/plan.json` records the selected JAR build/SHA-256, SID, paths and configuration checksum. The original wizard configuration is in `files/autoupgrade.cfg`; the operational instructions are in `alis-runbook.md`. YAML variable values are treated as literal data; the runner invokes argument lists without a shell.
 
 Verify the host's SSH key through your normal SSH connection, then test SSH/Python with:
 
@@ -47,18 +59,22 @@ ansible oracle_patch -m ansible.builtin.ping
 
 This is an SSH/Python test, not ICMP ping. When the SSH account differs from the software owner, Ansible uses sudo. Add `-K` to playbook commands if sudo requires a password; use an existing SSH key or `--ask-pass` for SSH authentication.
 
-## Execute on a laboratory database
+## 4. Prepare a laboratory database host
 
-Prepare OS/installer prerequisites, the Oracle owner/groups and supported Java. Place your separately obtained JAR at the `jar` path in `files/plan.json`. A basename entered in ALIS resolves inside the Ansible working directory. For online media, prepare the AutoUpgrade auto-login keystore interactively with `-load_password`; the runner requires `cwallet.sso`. Offline media must include companion metadata. Prepare TDE separately and keep passwords out of this bundle.
+Prepare OS/installer prerequisites, the Oracle owner/groups, supported Java and the media directory. The JAR is not included in the ZIP: place your separately obtained JAR at the `jar` path in `files/plan.json`. If you entered only `autoupgrade.jar` in ALIS, place it in the selected Ansible working directory. The runner checks its build and SHA-256.
 
-Use dedicated working and global log directories for every patch cycle. Root-script execution remains an operational step from the runbook and AutoUpgrade messages; the bundle does not invent root privileges. Plan the maintenance window, backup and application checks.
+For `download=YES`, prepare the AutoUpgrade auto-login keystore interactively on the server as the Oracle owner, using the runbook's `-load_password` command. The runner requires `cwallet.sso`. For `download=NO`, prepare the complete media directory with companion metadata. TDE wallets have separate requirements. Keep passwords out of YAML and JSON.
+
+Use dedicated working and global log directories for every patch cycle; these retain the state needed to resume. ALIS does not execute root scripts. Arrange any required scripts or execution mechanism using the runbook and actual AutoUpgrade messages. Plan the maintenance window, backup and application checks.
+
+## 5. Run each stage on the laboratory server
 
 ```sh
 ansible-playbook prepare.yml
 ansible-playbook analyze.yml
 ```
 
-Read the fetched results under `artifacts/oracle_db/` and AutoUpgrade's server-side reports before deployment.
+`prepare` stages the files and checks the JAR, database identity, topology, media directory and online-download auto-login wallet. `analyze` runs actual AutoUpgrade checks. Read the fetched results under `artifacts/oracle_db/` and AutoUpgrade's server-side reports. After a successful analysis, run:
 
 ```sh
 ansible-playbook deploy.yml
@@ -81,6 +97,6 @@ ansible-playbook deploy.yml -e alis_resume=true
 
 26.6 receives `-resume`; 26.5 reuses the same command and native recovery state. Immutable staged-file checks reject changed bundles. A completed deploy is verified and skipped instead of patched again. Use a new bundle and new directories for the next patch cycle. Do not clear recovery data to handle routine failures.
 
-`--check` cannot simulate Oracle and is rejected. Use `test-local.yml` for simulation and `analyze.yml` for actual readiness checks. For a complete Polish walkthrough see [README.pl.md](README.pl.md).
+`--check` cannot simulate Oracle and is rejected. Use `test-local.yml` for simulation and `analyze.yml` for actual readiness checks.
 
 Sources: [Ansible installation](https://docs.ansible.com/projects/ansible/latest/installation_guide/intro_installation.html), [async tasks](https://docs.ansible.com/projects/ansible/latest/playbook_guide/playbooks_async.html), [AutoUpgrade CLI](https://docs.oracle.com/en/database/oracle/oracle-database/26/upgrd/autoupgrade-command-line-parameters.html).

@@ -7,7 +7,7 @@ for(const f of profiles)test('Ansible package preserves the exact selected build
   const p=example(f),files=await A.bundle(p,f),get=n=>files.find(a=>a.name===n)?.content,plan=JSON.parse(get('files/plan.json'));
   assert.equal(plan.profile,f.id);assert.equal(plan.jar_sha256,f.jarSha256);assert.equal(plan.resume_cli,!!f.behavior.resumeCli);
   assert.equal(get('files/autoupgrade.cfg'),C.renderConfig(p));assert.equal(plan.config_sha256,crypto.createHash('sha256').update(C.renderConfig(p)).digest('hex'));
-  for(const name of ['prepare.yml','analyze.yml','deploy.yml','verify.yml','test-local.yml','README.md','README.pl.md','files/runner.py','tests/simulator.py'])assert(get(name),name);
+  for(const name of ['prepare.yml','analyze.yml','deploy.yml','verify.yml','test-local.yml','README.md','files/runner.py','tests/simulator.py'])assert(get(name),name);
   assert(!files.some(a=>a.name.endsWith('.jar')));assert(!get('deploy.yml').includes('restore -'));
 });
 test('pinned RU is retained for inventory verification',async()=>{const p=example();p.jobs[0].values.patch='RU:19.28,OPATCH';const files=await A.bundle(p,profiles[1]);assert.equal(JSON.parse(files.find(f=>f.name==='files/plan.json').content).pinned_ru,'19.28');});
