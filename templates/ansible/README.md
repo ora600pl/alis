@@ -15,6 +15,24 @@ ansible-playbook --version
 
 When you open a new Terminal session, activate the environment again with `source ~/.venvs/alis-ansible/bin/activate`. The bundle was validated with ansible-core 2.21.4 and 2.19.13. Older Python 3.8 execution hosts need the older Ansible line; check its current maintenance status before choosing it.
 
+### If Ansible reports an unsupported locale
+
+`ERROR: Ansible could not initialize the preferred locale: unsupported locale setting` means that the controller's locale environment is unavailable to Python. Ansible checks it before reading the playbook and requires UTF-8. On macOS, retry with an available UTF-8 locale:
+
+```sh
+LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 ansible-playbook test-local.yml --syntax-check
+```
+
+This overrides the locale for that command only. To use it for the remaining commands in the current Terminal session:
+
+```sh
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+ansible-playbook test-local.yml
+```
+
+If that locale is unavailable, run `locale -a` and choose an installed UTF-8 locale. Run `locale` to inspect the current settings. `LC_ALL` overrides the individual `LC_*` categories and `LANG`; an invalid category can otherwise cause initialization to fail. Python's UTF-8 mode alone does not repair an unavailable locale. These settings apply to the controller Terminal session, not the Oracle server. See [Ansible's locale initialization](https://github.com/ansible/ansible/blob/stable-2.21/lib/ansible/cli/__init__.py).
+
 ## 2. Export a bundle and learn locally
 
 In ALIS, select **Patch existing databases**. Under **Environment**, select **Linux** or **Oracle Linux 9** and **Single instance**. Complete your patch configuration. In **Runbook → Automate with Ansible**, enter the execution host, SSH user, Oracle software owner and a dedicated working directory, then select **Download Ansible bundle .zip**. Each patch cycle needs its own working directory and global log directory.
