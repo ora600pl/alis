@@ -8,12 +8,50 @@
   const settings = project => ({...DEFAULTS,...project.automation});
   const absolute = value => typeof value === 'string' && /^\/(?!$)[^\0\r\n{}]+$/.test(value) && !value.split('/').includes('..');
   const executable = value => typeof value === 'string' && (absolute(value) || /^[A-Za-z0-9_.-]+$/.test(value));
+  function patchExport(project) {
+    const adapted=C.clone(project),adjustments=[],reasons=[];
+    if(project.operation!=='patch')return {project:adapted,adjustments,reasons};
+    const own=(map,key)=>Object.hasOwn(map,key),boolean=value=>typeof value==='string'&&/^(YES|NO)$/i.test(value);
+    const legacy='drop_grp_after_upgrade',native='drop_grp_after_patching';
+    const shared=own(adapted.globals,legacy)?adapted.globals[legacy]:null;
+    if(shared!==null&&!boolean(shared))reasons.push('global.'+legacy+': expected YES or NO before translating to patch settings.');
+    for(const job of adapted.jobs) {
+      if(own(job.values,'create_oracle_home')) {
+        const value=job.values.create_oracle_home;
+        if(boolean(value)) {
+          delete job.values.create_oracle_home;
+          adjustments.push(job.prefix+'.create_oracle_home='+value+': omit the upgrade-only switch. The patch cycle prepares the target home explicitly with -patch -mode create_home, then deploy performs out-of-place patching.');
+        } else reasons.push(job.prefix+'.create_oracle_home: expected YES or NO before translating to patch settings.');
+      }
+      const local=own(job.values,legacy),value=local?job.values[legacy]:shared;
+      if(value===null)continue;
+      const source=(local?job.prefix:'global')+'.'+legacy,target=job.prefix+'.'+native;
+      if(!boolean(value)){reasons.push(source+': expected YES or NO before translating to patch settings.');continue;}
+      if(own(job.values,native)&&String(job.values[native]).toUpperCase()!==value.toUpperCase()) {
+        reasons.push(source+'='+value+' conflicts with '+target+'='+job.values[native]+'. Choose one restore-point policy before exporting.');
+        continue;
+      }
+      if(!own(job.values,native)) {
+        job.values[native]=value;
+        // Preserve the position and inline comment of a renamed local assignment.
+        if(local)for(const record of adapted.records||[])if(record.key===source&&!record.invalid&&!record.duplicate) {
+          record.key=target;
+          record.raw=record.raw.replace(/^(\s*)\w+\s*\.\s*[\w.-]+(\s*=)/,(_,space,equals)=>space+target+equals);
+        }
+      }
+      delete job.values[legacy];
+      adjustments.push(source+'='+value+' → '+target+'='+job.values[native]+'. Preserve the requested restore-point cleanup policy for patching.');
+    }
+    if(shared!==null&&boolean(shared))delete adapted.globals[legacy];
+    return {project:adapted,adjustments,reasons};
+  }
   function assess(project, profile) {
-    const reasons = C.validate(project,profile).filter(i=>i.level==='error').map(i=>i.text);
+    const adapted=patchExport(project);project=adapted.project;
+    const reasons = [...adapted.reasons,...C.validate(project,profile).filter(i=>i.level==='error').map(i=>i.text)];
     const job=project.jobs[0],ctx=job?.context||{},e=project.execution||{},a=settings(project);
     const get=n=>job?C.effective(project,job,n,profile).value:null;
     if(project.operation!=='patch'||project.jobs.length!==1||job?.scenario!=='patch')reasons.push('Ansible export supports one existing database patch job. Choose Patch existing databases.');
-    if(!['analyze','deploy','fixups'].includes(project.mode))reasons.push('Select a database patch mode. The bundle exports separate analyze and deploy playbooks.');
+    if(!['analyze','deploy','fixups'].includes(project.mode))reasons.push('Select a database patch mode. The bundle runs the complete analyze, download, create_home and deploy cycle.');
     if(!['linux','ol9'].includes(ctx.os)||ctx.topology!=='single')reasons.push('In Environment, select Linux (or Oracle Linux 9) and Single instance.');
     if(get('platform')&&!/^LINUX\./i.test(get('platform')))reasons.push('Use Linux media or leave platform omitted for the execution host.');
     if(ctx.role&&ctx.role!=='')reasons.push('Data Guard and standby roles need a separately coordinated Ansible workflow.');
@@ -36,7 +74,7 @@
     if(!executable(a.python)||!executable(e.javaPath||'java'))reasons.push('Use a command name or absolute path for Python and Java.');
     if(!(absolute(project.jarPath)||/^[A-Za-z0-9_.-]+\.jar$/.test(project.jarPath)))reasons.push('Use an absolute JAR path or a JAR basename resolved inside the working directory.');
     for(const [name,min,max] of [['timeout',60,604800],['poll',1,300]])if(!/^\d+$/.test(a[name])||Number(a[name])<min||Number(a[name])>max)reasons.push(name+' must be an integer between '+min+' and '+max+'.');
-    return {ready:reasons.length===0,reasons:[...new Set(reasons)]};
+    return {ready:reasons.length===0,reasons:[...new Set(reasons)],adjustments:adapted.adjustments,project};
   }
   async function sha256(text) {
     const bytes=await root.crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
@@ -49,6 +87,7 @@
   async function bundle(project,profile) {
     const state=assess(project,profile);
     if(!state.ready)throw new Error(state.reasons.join('\n'));
+    const originalConfig=C.renderConfig(project);project=state.project;
     const a=settings(project),e=project.execution||{},job=project.jobs[0],get=n=>C.effective(project,job,n,profile).value;
     const config=C.renderConfig(project),parts=C.patchParts(get('patch')||'',profile);
     const pinnedRu=parts.find(p=>['RU','RECOMMENDED'].includes(p.type)&&p.version)?.version||'';
@@ -57,9 +96,13 @@
     const homeConfig=homeArtifact?.content||config;
     const plan={format:2,simulation:false,profile:profile.id,jar_sha256:profile.jarSha256,jar:absolute(project.jarPath)?project.jarPath:a.workDir.replace(/\/$/,'')+'/'+project.jarPath,java:e.javaPath||'java',config_sha256:await sha256(config),home_config_sha256:await sha256(homeConfig),home_config_separate:Boolean(homeArtifact),create_home_prechecks:Boolean(profile.behavior?.createHomePrechecks),sid:get('sid'),source_home:get('source_home'),target_home:get('target_home'),log_dir:project.globals.global_log_dir||project.globals.autoupg_log_dir,folder:get('folder')||get('download_folder'),download:/^YES$/i.test(get('download')),keystore:project.globals.keystore||'',resume_cli:Boolean(profile.behavior?.resumeCli),debug:e.debug==='YES',restore_on_fail:e.restoreOnFail==='YES',pinned_ru:pinnedRu};
     const files=Object.entries(T).map(([name,content])=>({name,content}));
+    if(state.adjustments.length) {
+      files.push({name:'original-autoupgrade.cfg',content:originalConfig});
+      files.push({name:'config-adjustments.md',content:'# Imported configuration adapted for patching\n\nOnly files/autoupgrade.cfg and files/autoupgrade.home.cfg are executed. original-autoupgrade.cfg preserves the configuration before conversion and is never staged on the server.\n\n'+state.adjustments.map(text=>'- '+text).join('\n')+'\n'});
+    }
     files.push({name:'inventory.yml',content:'---\nall:\n  children:\n    oracle_patch:\n      hosts:\n        oracle_db:\n          ansible_host: '+yaml(a.host)+'\n          ansible_user: '+yaml(a.sshUser)+'\n'});
     files.push({name:'host_vars/oracle_db.yml',content:'---\nalis_oracle_user: '+yaml(a.oracleUser)+'\nalis_become: '+String(a.sshUser!==a.oracleUser)+'\nalis_work_dir: '+yaml(a.workDir)+'\nalis_python: '+yaml(a.python)+'\nansible_python_interpreter: '+yaml(a.python)+'\nalis_timeout: '+a.timeout+'\nalis_poll_interval: '+a.poll+'\nalis_resume: false\n'});
-    files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'files/autoupgrade.home.cfg',content:homeConfig},{name:'alis-runbook.md',content:W.markdown(runProject,profile)});
+    files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'files/autoupgrade.home.cfg',content:homeConfig},{name:'alis-runbook.md',content:W.markdown(runProject,profile)+(state.adjustments.length?'\n## Imported configuration conversion\n\nThe executed patch configurations use the adaptations documented in config-adjustments.md. The unchanged input is retained as original-autoupgrade.cfg; it is not executed.\n':'')});
     const actions=['prepare','analyze','download','create_home','deploy','verify'];
     for(const action of actions)files.push({name:action+'.yml',content:playbook(action)});
     files.push({name:'patch.yml',content:'---\n# Complete patch cycle; each stage must succeed before the next starts.\n'+actions.map(action=>'- ansible.builtin.import_playbook: '+action+'.yml\n  vars:\n    alis_cycle: true').join('\n')+'\n'});

@@ -16,7 +16,7 @@
     refreshable_noncdb: {label:'Clone or refresh a non-CDB',detail:'Copy a non-CDB over a database link and convert it on the target.',operation:'upgrade',group:'Upgrade and migrate'},
     patch: {label:'Patch existing databases',detail:'Out-of-place patching, with RAC and Data Guard planning options.',operation:'patch',group:'Patch databases'}
   };
-  const MODES = { upgrade: ['analyze', 'deploy', 'fixups', 'upgrade', 'postfixups'], patch: ['analyze', 'deploy', 'fixups', 'download', 'create_home'] };
+  const MODES = { upgrade: ['analyze', 'fixups', 'deploy', 'upgrade', 'postfixups'], patch: ['analyze', 'download', 'create_home', 'fixups', 'deploy'] };
   const DETAILS = {
     global_log_dir: ['Global log directory', 'Use a separate log directory for each independent AutoUpgrade run.'],
     autoupg_log_dir: ['Legacy global log directory', 'Older spelling. Prefer global.global_log_dir in new configurations.'],
@@ -263,7 +263,7 @@
 
   function modesFor(scenario) {
     const s=SCENARIOS[scenario];
-    return s?.group==='Prepare software'?[s.mode]:scenario==='pdb_upgrade'?['upgrade','analyze','postfixups']:MODES[s?.operation||'upgrade'];
+    return s?.group==='Prepare software'?[s.mode]:scenario==='pdb_upgrade'?['analyze','upgrade','postfixups']:MODES[s?.operation||'upgrade'];
   }
   function initialMode(project) { return ['download','create_home','postfixups'].includes(project.mode)?project.mode:'analyze'; }
   // Prospective controls reuse export validation. Unrelated incomplete fields must

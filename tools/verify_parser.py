@@ -15,7 +15,7 @@ from inspect_jar import inspect
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = r"""
-const C=require('./site/assets/core.js'), W=require('./site/assets/workflows.js');
+const C=require('./site/assets/core.js'), W=require('./site/assets/workflows.js'), A=require('./site/assets/ansible.js');
 const profile=require('./profiles/'+process.env.ALIS_PROFILE+'.json'), cases=[];
 for(const scenario of Object.keys(C.SCENARIOS)) {
   const p=W.exampleProject(profile.id,scenario), source=W.sourceProject(p,profile);
@@ -39,6 +39,15 @@ if(profile.behavior?.strictPatchSyntax){
   Object.assign(p.jobs[0].values,{create_oracle_home:'YES',folder:'/media',gold_image:'YES','gold_image.security_patch_level':'HIGH'});
   if(C.validate(p,profile).some(i=>i.level==='error'))throw new Error('Invalid integrated home image');
   cases.push({name:'upgrade-home-image.cfg',text:C.renderConfig(p),expected:Object.fromEntries(C.entries(p))});
+}
+{
+  const p=W.exampleProject(profile.id,'patch');
+  Object.assign(p.jobs[0].values,{create_oracle_home:'YES',drop_grp_after_upgrade:'NO'});
+  const imported=C.parseConfig(C.renderConfig(p),profile,'patch').project;
+  imported.jobs[0].context={os:'linux',topology:'single'};imported.automation={host:'lab.example.com'};
+  const state=A.assess(imported,profile);
+  if(!state.ready)throw new Error('Invalid patch adaptation: '+state.reasons.join('; '));
+  cases.push({name:'ansible-adapted-patch.cfg',text:C.renderConfig(state.project),expected:Object.fromEntries(C.entries(state.project))});
 }
 process.stdout.write(JSON.stringify(cases));
 """

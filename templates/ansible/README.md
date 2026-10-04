@@ -48,7 +48,7 @@ Add `-K` if sudo requires a password. Runs **prepare → analyze → download �
 
 `prepare.yml` checks/stages prerequisites; `verify.yml` checks the active home and SQL patches in every container. You can run stages separately to prepare the home before the maintenance window. Use either Ansible or the manual runbook sequence for a cycle.
 
-With `download=YES`, native analyze/deploy validation may also fetch media. Output Gold Image packaging uses `autoupgrade.home.cfg` during home preparation to avoid creating the output twice. `create_oracle_home` is an upgrade parameter; patch `create_home` creates the new home.
+With `download=YES`, native analyze/deploy validation may also fetch media. Output Gold Image packaging uses `autoupgrade.home.cfg` during home preparation to avoid creating the output twice. Imported `create_oracle_home` is replaced by the explicit patch `create_home` phase; `drop_grp_after_upgrade` maps to `drop_grp_after_patching`. If converted, review `config-adjustments.md` and the preserved `original-autoupgrade.cfg` (never executed).
 
 ## Results and resume
 
