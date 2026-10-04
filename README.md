@@ -29,7 +29,7 @@ Each of the **12 workflows** has a complete, editable example. The wizard includ
 ## What you get
 
 1. An AutoUpgrade `.cfg`, with a live preview and static dependency checks.
-2. An ordered runbook: executable checks, directories, MOS keystore dialogue, media download, home creation, requested root scripts and the selected database stages.
+2. An ordered runbook: executable checks, directories and credential setup, then separate database analysis and a results-review gate before media/home preparation or database changes. Software-only projects skip database analysis.
 3. A separate source-side configuration for clone analyze/fixups, using the real source Oracle home.
 4. POSIX or PowerShell commands, with interactive console steps distinguished from shell commands. Recovery commands remain in a separate toolbox.
 5. A Markdown runbook containing the instructions and configuration files; a print/PDF layout; an editable ALIS JSON project.
@@ -64,7 +64,7 @@ Choose **AutoUpgrade 26.6.260925** (built 2026-09-25) or **26.5.260807** in Plan
 
 26.6 adds download choices for CPAT, DBSAT, Exadata, Enterprise Manager and GI images, 21c CSPU support, RAC startup timing, SEHA/RAC One Node guidance, clone PATH_PREFIX handling and explicit resume commands. Removed or unavailable parameters block export when changing profiles. The investigation combined manifest/help/templates, parameter registries, selected validators and execution consumers, CFR decompilation, Oracle documentation, and articles by Mike Dietrich, Daniel Overby Hansen and Rodrigo Jorge. [Profile evidence and update procedure](docs/PROFILE.md).
 
-The implementation has **242 Node tests, 31 Python tests, 200 real-JAR contract comparisons and 38 parser read-backs across both builds**, plus actual Ansible playbook runs against a local simulator. [Validation record](docs/VALIDATION.md).
+The implementation has **248 Node tests, 32 Python tests, 200 real-JAR contract comparisons and 38 parser read-backs across both builds**, plus actual Ansible playbook runs against a local simulator. [Validation record](docs/VALIDATION.md).
 
 A green status means that ALIS's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
 
@@ -85,7 +85,7 @@ node --check site/assets/workflows.js
 node --check site/assets/ansible.js
 ```
 
-Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same five syntax checks and three success/failure scenarios. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
+Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same five syntax checks and four scenarios: success, failed analysis, failed native stage and failed SQL patches. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
 
 Optional parser comparison (requires a separately obtained Oracle JAR and a JDK):
 

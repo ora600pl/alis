@@ -29,7 +29,7 @@ def main():
             result = subprocess.run([executable, name + '.yml', '--syntax-check'], cwd=bundle, env=env, capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stdout + result.stderr)
-        for fault, expected in [('none', 0), ('status', 2), ('sqlpatch', 2)]:
+        for fault, expected in [('none', 0), ('checks', 2), ('status', 2), ('sqlpatch', 2)]:
             if (bundle / 'artifacts').exists():
                 shutil.rmtree(bundle / 'artifacts')
             result = subprocess.run([executable, 'test-local.yml', '-e', 'alis_test_failure=' + fault], cwd=bundle, env=env, capture_output=True, text=True)
@@ -41,10 +41,19 @@ def main():
             evidence = list((bundle / 'artifacts/localhost').glob('*'))
             if not evidence:
                 raise RuntimeError('Ansible did not fetch result files.')
-            result_file = bundle / 'artifacts/localhost/deploy-result.json'
+            result_file = bundle / ('artifacts/localhost/analyze-result.json' if fault == 'checks' else 'artifacts/localhost/deploy-result.json')
             saved = json.loads(result_file.read_text())
             if (fault == 'none') == ('error' in saved):
                 raise RuntimeError('Fetched results do not match this run: ' + repr(saved))
+            if fault == 'checks':
+                if (bundle / 'artifacts/localhost/deploy-result.json').exists():
+                    raise RuntimeError('Deployment ran after unsuccessful analysis.')
+                # prepare logs no native database operation; failed analyze must be the only mode.
+                status = json.loads((bundle / 'artifacts/localhost/analyze-status.json').read_text())
+                commands = (Path(status['jobs'][0]['sourceHome']).parent / 'commands.jsonl').read_text()
+                modes = [command[command.index('-mode') + 1] for command in map(json.loads, commands.splitlines())]
+                if modes != ['analyze']:
+                    raise RuntimeError('Unexpected operations after failed analysis: ' + repr(modes))
             outputs.append({'fault': fault, 'returncode': result.returncode, 'recap': recap[0], 'evidence_files': len(evidence)})
         print(json.dumps({'syntax_checks': 5, 'ansible_runs': outputs}, indent=2))
 

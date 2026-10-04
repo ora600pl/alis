@@ -46,17 +46,29 @@ The JAR expands TOOLS to AU, OPATCH, SQLCL, CVU and AHF. RECOMMENDED expands to 
 
 | Wizard workflow | Main stages | Additional configuration and gates |
 |---|---|---|
-| Database upgrade | analyze → fixups/deploy; or explicit upgrade/postfixups | Source SID/home and target release/home; optional `create_oracle_home=YES` with version and media directory |
-| Selected resident PDB upgrade | analyze, upgrade or postfixups | PDB list already present in a target-version CDB; stage-appropriate database state |
+| Database upgrade | analyze → review → deploy; optional separate fixups | Source SID/home and target release/home; optional `create_oracle_home=YES` with version and media directory |
+| Selected resident PDB upgrade | successful source preparation → upgrade; postfixups continues an upgrade | PDBs already plugged into a target-version CDB and open in UPGRADE mode; retain source analysis/fixups reports |
 | Non-CDB to PDB | source checks → deploy/conversion | Target CDB, target PDB name, copy decision; same-release conversion and release upgrade have different runtime paths |
 | Unplug/plug | source checks → deploy | Selected PDBs, per-PDB target names and file-copy clauses; source preservation requires COPY |
 | PDB clone/refresh | separate source checks → target clone → optional refresh/cutover | Per-PDB database links and optional intervals; source config artifact uses the actual source home |
 | Non-CDB clone/refresh | separate source checks → target clone/conversion → optional cutover | Scalar source link, target CDB/name and copy option |
-| Existing database patching | download/home preparation → analyze → deploy | Same major release, source SID/home, target home and patch repository; topology constraints |
+| Existing database patching | analyze → review → media/home preparation → deploy | Same major release, source SID/home, target home and patch repository; topology constraints |
 
-`analyze` emits no database-changing stage. `fixups` requests source changes. `deploy` orchestrates the relevant complete operation. `upgrade` and `postfixups` are entry points into an already prepared target-side state; their runbooks do not restart cloning or transport. The command and selected stage are separate from the `.cfg` content.
+### Analyze is the first database phase
+
+For a fresh operation, ALIS generates a separate `analyze` command first, including when the selected mode is `upgrade`. The next step requires successful completion for every job and review of the native status and check reports. Resolve errors/manual prerequisites and rerun analysis before continuing. A Java exit code of zero is insufficient. Software-only download/create_home projects have no database analysis. `postfixups` is a continuation: confirm the earlier preparation and completed upgrade reports instead of analyzing an already upgraded source.
+
+For an ordinary upgrade, use **analyze → review → deploy**. Deploy includes checks, pending fixups, the upgrade and applicable post-upgrade work. Separate fixups are optional; they change the source database, so verify a backup first. [Mike Dietrich's recommended order](https://mikedietrichde.com/2019/07/12/autoupgrade-analyze-fixups-upgrade-and-deploy-modes/).
+
+`upgrade` is an advanced split path. Run source analysis and fixups before transport or manual plugging, review both results, then prepare the execution environment and run upgrade. Current Oracle documentation allows the database to run in the source or target home; source-home execution can select a deploy path. Target-side resident PDBs must already be plugged in and open in UPGRADE mode. That target-side path lacks the complete deploy backup/post-upgrade workflow. Use original source configurations and retained reports after a move; do not reapply source changes to an already transported database. [Oracle processing modes](https://docs.oracle.com/en/database/oracle/oracle-database/26/upgrd/about-autoupgrade-processing-modes.html). Mike's 2019 article explains the original target-only upgrade mode; the current Oracle reference and the selected JAR govern present behavior.
+
+For an RU within the same major release, choose **Patch existing databases**, using `-patch`, rather than a database release upgrade. A home directory named `19.32` does not pin the requested RU: `RECOMMENDED` is resolved by the patch service. Verify the actual source release and pin the patch expression when a particular RU is required.
+
+The mode is a command-line choice, separate from `.cfg` content. ALIS preserves imported configuration text and the selected mode; it adds preparation and review gates rather than silently selecting a different operation.
 
 For staged remote upgrade, `target_is_remote=YES` does not move data. The deploy runbook separates source analyze/fixups, the administrator's backup/restore or transport procedure, and target upgrade. Recheck paths, environment and database startup on each host. [Oracle parameter reference](https://docs.oracle.com/en/database/oracle/oracle-database/26/upgrd/upgrade-parameters-autoupgrade-config-file.html).
+
+The Ansible bundle uses **prepare → analyze → review → deploy → verify**. Prepare stages files and checks prerequisites; analyze is the first database phase. The runner rejects deploy without verified analysis for the exact immutable bundle. Use the playbooks for automation; the native commands in the bundled runbook describe the manual path and should not also be executed as a second patch cycle. [Ansible instructions](../templates/ansible/README.md).
 
 ## Clone timing and source preparation
 

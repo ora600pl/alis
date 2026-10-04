@@ -35,9 +35,10 @@ To see how a failure is reported:
 ```sh
 ansible-playbook test-local.yml -e alis_test_failure=status
 ansible-playbook test-local.yml -e alis_test_failure=sqlpatch
+ansible-playbook test-local.yml -e alis_test_failure=checks
 ```
 
-These intentional failure tests must end with `failed=1`, even though fake Java returns zero. They demonstrate stage-status and SQL-patch verification. Each run creates a new sandbox; delete only the exact local simulation directory when finished.
+These intentional failure tests must end with `failed=1`, even though fake Java returns zero. They demonstrate stage-status, SQL-patch and analysis-check verification. With `checks`, analysis fails and the playbook stops before deploy; inspect `artifacts/localhost/analyze-result.json`. There must be no deploy result for that run. Use a fresh extracted bundle or remove the previous local simulation artifacts first, so older deploy results are not confused with this run. Each run creates a new sandbox; delete only the exact local simulation directory when finished.
 
 ## 3. Check the bundle for your server
 
@@ -74,14 +75,14 @@ ansible-playbook prepare.yml
 ansible-playbook analyze.yml
 ```
 
-`prepare` stages the files and checks the JAR, database identity, topology, media directory and online-download auto-login wallet. `analyze` runs actual AutoUpgrade checks. Read the fetched results under `artifacts/oracle_db/` and AutoUpgrade's server-side reports. After a successful analysis, run:
+`prepare` stages the files and checks the JAR, database identity, topology, media directory and online-download auto-login wallet. It does not deploy patches. **Analyze is the first database phase.** Wait for successful analysis, read the fetched results under `artifacts/oracle_db/` and AutoUpgrade's server-side reports, and resolve errors/manual prerequisites. A zero Java exit code alone does not certify readiness. Only after this review and confirmation of the backup/maintenance plan, run:
 
 ```sh
 ansible-playbook deploy.yml
 ansible-playbook verify.yml
 ```
 
-Deploy requires a successful analysis from this exact bundle. Success requires fresh AutoUpgrade status/progress, successful required stages, the active target home via Linux `/proc`, target inventory and successful latest SQL-patch APPLY rows in all containers. Closed PDBs prevent complete verification. If AutoUpgrade completed but final verification failed, fix the cause and run verify.yml; patching is not repeated. Unfinished or failed database checks block readiness; inspect the per-container report. Review application/service checks separately.
+Deploy requires a successful analysis from this exact bundle. Missing or failed analysis blocks deploy, including attempts to bypass it with resume. The playbooks invoke native AutoUpgrade deploy after analysis; do not additionally run the manual download/create_home/deploy commands in `alis-runbook.md` as another cycle. Success requires fresh AutoUpgrade status/progress, successful required stages, the active target home via Linux `/proc`, target inventory and successful latest SQL-patch APPLY rows in all containers. Closed PDBs prevent complete verification. If AutoUpgrade completed but final verification failed, fix the cause and run verify.yml; patching is not repeated. Unfinished or failed database checks block readiness; inspect the per-container report. Review application/service checks separately.
 
 Scope: one existing Linux single-instance database, no Data Guard, OUTOFPLACE patching. Both export validation and runtime database checks reject incompatible topologies. RAC, SEHA, RAC One Node and Data Guard require separate coordination. No real Oracle patch deployment was performed when validating this exporter.
 

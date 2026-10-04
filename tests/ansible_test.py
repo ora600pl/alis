@@ -73,6 +73,20 @@ class RunnerTests(unittest.TestCase):
         self.fault('checks')
         self.failure('analyze', 'failed or execution-error database checks')
 
+    def test_failed_analysis_blocks_deploy_and_resume_for_both_profiles(self):
+        for profile in ('26.5.260807', '26.6.260925'):
+            with self.subTest(profile=profile):
+                self.change_plan(profile=profile, resume_cli=profile=='26.6.260925')
+                (self.root / 'profile.txt').write_text(profile)
+                self.fault('checks')
+                self.failure('analyze', 'failed or execution-error database checks')
+                commands = (self.root / 'commands.jsonl').read_text()
+                for extra, reason in (((), 'Run analyze.yml successfully'), (('--resume',), 'no interrupted operation')):
+                    self.failure('deploy', reason, *extra)
+                    self.assertEqual(commands, (self.root / 'commands.jsonl').read_text())
+                for path in (self.run / 'state.json', self.root / 'commands.jsonl'):
+                    path.unlink(missing_ok=True)
+
     def test_stage_failure_with_java_rc_zero_is_rejected(self):
         self.success('analyze')
         self.fault('status')

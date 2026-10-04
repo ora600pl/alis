@@ -38,9 +38,10 @@ for(const scenario of Object.keys(C.SCENARIOS))test('complete example and projec
 for(const scenario of Object.keys(C.SCENARIOS).filter(s=>C.SCENARIOS[s].group!=='Prepare software'))for(const mode of C.modesFor(scenario))test('stage-specific runbook: '+scenario+' / '+mode,()=>{
   const p=example(scenario);p.mode=mode;assert.deepEqual(errors(p),[]);
   const commands=shell(p);
+  if(['analyze','fixups','deploy','upgrade'].includes(mode))assert.equal(commands.match(/-mode (\w+)/)?.[1],'analyze');
   if(mode==='analyze')assert(!/-mode (fixups|deploy|upgrade|postfixups|create_home)/.test(commands));
   if(mode==='fixups')assert(!/-mode (deploy|upgrade|postfixups|create_home)/.test(commands));
-  if(['upgrade','postfixups'].includes(mode)){assert(commands.includes('-mode '+mode));assert(!commands.includes('-mode deploy'));assert(!commands.includes('-mode analyze'));}
+  if(['upgrade','postfixups'].includes(mode)){assert(commands.includes('-mode '+mode));assert(!commands.includes('-mode deploy'));assert.equal(commands.includes('-mode analyze'),mode==='upgrade');}
 });
 test('offline installation omits MOS and download, retains create_home and installation gates',()=>{const p=example();p.jobs[0].values.download='NO';const text=shell(p);assert(!text.includes('-load_password'));assert(!text.includes('-mode download'));assert(text.includes('-mode create_home'));assert(W.runbook(p,profile).steps.some(s=>s.title.includes('privileged')));});
 test('download workflow stages tools and numeric GI patches without creating a home or database',()=>{const p=example('download');p.jobs[0].values.patch='TOOLS,39000001';assert.deepEqual(errors(p),[]);const text=shell(p);assert(text.includes('-mode download'));assert(!/-mode (create_home|deploy|analyze)/.test(text));assert(!W.runbook(p,profile).toolbox.some(t=>/restore -jobs|rollback/.test(t.code)));});
@@ -67,5 +68,38 @@ test('PowerShell and POSIX quote apostrophes without command substitution',()=>{
 test('Markdown contains both clone configuration files, console instructions and profile provenance',()=>{const p=example('refreshable');p.mode='deploy';const text=W.markdown(p,profile);assert(text.includes('## File: refreshable.source.cfg'));assert(text.includes('## File: refreshable.cfg'));assert(text.includes('proceed -job JOB_ID'));assert(text.includes(profile.id));assert(text.includes('https://dohdatabase.com/'));});
 test('every declaration has help, an evidence note and a human-readable label',()=>{for(const list of Object.values(profile.operations))for(const param of list){assert(param.help?.length>10,param.name);assert(param.label?.length>1,param.name);assert(param.evidence,param.name);}});
 
-test('preview points to source preparation for clones and preserves explicit target stages',()=>{const p=example('refreshable');assert(W.previewCommand(p,profile).includes("'refreshable.source.cfg' -mode analyze"));p.mode='postfixups';assert(W.previewCommand(p,profile).includes("'refreshable.cfg' -mode postfixups"));});
+test('preview points to source analysis even for upgrade and preserves postfixups continuation',()=>{const p=example('refreshable');assert(W.previewCommand(p,profile).includes("'refreshable.source.cfg' -mode analyze"));p.mode='upgrade';assert(W.previewCommand(p,profile).includes("'refreshable.source.cfg' -mode analyze"));p.mode='postfixups';assert(W.previewCommand(p,profile).includes("'refreshable.cfg' -mode postfixups"));});
+
+for(const id of ['26.5.260807','26.6.260925']){
+  const reviewed=require('../profiles/'+id+'.json');
+  test('integrated-home upgrade starts with analysis and a review gate: '+id,()=>{
+    const text='global.global_log_dir=/home/oracle/autoupgrade/logs\nglobal.keystore=/home/oracle/autoupgrade/keys\nupg1.sid=ORCLSE\nupg1.source_home=/opt/oracle/product/19c/dbhome_se\nupg1.target_home=/opt/oracle/product/19.32/dbhome_se\nupg1.target_version=19\nupg1.create_oracle_home=YES\nupg1.folder=/home/oracle/autoupgrade/bin\nupg1.download=YES\nupg1.patch=RECOMMENDED\nupg1.gold_image=YES\nupg1.drop_grp_after_upgrade=YES\nupg1.timezone_upg=YES\n';
+    const p=C.parseConfig(text,reviewed,'upgrade').project;p.mode='upgrade';
+    assert.equal(C.renderConfig(p),text);
+    assert.deepEqual(C.validate(p,reviewed).filter(i=>i.level==='error'),[]);
+    assert(W.previewCommand(p,reviewed).endsWith("'autoupgrade.cfg' -mode analyze"));
+    const r=W.runbook(p,reviewed),stages=r.steps.filter(s=>/-mode /.test(s.code));
+    assert(r.steps.some(s=>s.title==='Confirm release upgrade versus RU patching'));
+    assert.deepEqual(stages.map(s=>s.code.match(/-mode (\w+)/)[1]),['analyze','fixups','upgrade']);
+    const a=r.steps.indexOf(stages[0]),f=r.steps.indexOf(stages[1]),u=r.steps.indexOf(stages[2]);
+    assert(r.steps.slice(a+1,f).some(s=>s.title==='Review analyze results before proceeding'&&s.kind==='manual'));
+    assert(r.steps.slice(f+1,u).some(s=>s.title==='Review source fixups before proceeding'&&s.kind==='manual'));
+    assert(r.steps.find(s=>s.title==='Confirm the current database state').text.includes('source or target home'));
+  });
+  test('patch analyze is first even before home preparation and media download: '+id,()=>{
+    const p=W.exampleProject(id,'patch');p.mode='deploy';
+    const r=W.runbook(p,reviewed),stages=r.steps.filter(s=>/-mode /.test(s.code));
+    assert.equal(stages[0].code.match(/-mode (\w+)/)[1],'analyze');
+    assert(r.steps.indexOf(r.steps.find(s=>s.title==='Review analyze results before proceeding'))<r.steps.indexOf(stages[1]));
+    p.mode='analyze';assert(!/-mode (download|create_home|deploy)/.test(W.runbook(p,reviewed).steps.map(s=>s.code).join('\n')));
+  });
+  test('staged transport waits for separate analyze and fixups reviews: '+id,()=>{
+    const p=W.exampleProject(id,'upgrade');p.mode='deploy';p.jobs[0].values.target_is_remote='YES';
+    const steps=W.runbook(p,reviewed).steps,a=steps.findIndex(s=>s.code.includes('-mode analyze')),f=steps.findIndex(s=>s.code.includes('-mode fixups')),move=steps.findIndex(s=>s.title==='Move/restore and mount/open in the target home'),u=steps.findIndex(s=>s.code.includes('-mode upgrade'));
+    assert(a>=0&&f>a&&move>f&&u>move);
+    assert(steps.slice(a+1,f).some(s=>s.title==='Review analyze results before proceeding'));
+    assert(steps.slice(f+1,move).some(s=>s.title==='Review source fixups before proceeding'));
+    assert(!steps.some(s=>s.code.includes('-mode analyze')&&s.code.includes('-mode fixups')));
+  });
+}
 test('Windows credentials follow OS context, not a shell preference',()=>{const p=example('upgrade');p.execution={shell:'powershell'};assert(!shell(p).includes('-load_win_credential'));p.jobs[0].context={os:'windows'};assert(shell(p).includes("-load_win_credential 'CDB19'"));});

@@ -265,7 +265,7 @@
     const s=SCENARIOS[scenario];
     return s?.group==='Prepare software'?[s.mode]:scenario==='pdb_upgrade'?['upgrade','analyze','postfixups']:MODES[s?.operation||'upgrade'];
   }
-  function initialMode(project) { return ['download','create_home','upgrade','postfixups'].includes(project.mode)?project.mode:'analyze'; }
+  function initialMode(project) { return ['download','create_home','postfixups'].includes(project.mode)?project.mode:'analyze'; }
   // Prospective controls reuse export validation. Unrelated incomplete fields must
   // not lock the form, and existing imported conflicts must remain repairable.
   const DEPENDENCY_CODES = new Set(['scope','operation','unsupported','profile-parameter','value','logs','grp','compatible-release','replay','scenario-settings','upgrade-home-media','same-cdb','stats','workflow-mode','patch-expression','patch-ru','patch-version','download-only','patch-combination','patch-duplicate','recommended-version','gi-version','ru-version','patch-upgrade','gold-use','gold-create','gold-conflict','gold-exclusive','gold-download','gold-name','ojvm','patch-release','cspu-platform','mrp-platform','mrp-version','ojvm-ru','ol9','gold-service-ru','gold-service-version','gold-service-platform','folder-conflict','rolling-windows','rolling-single','standby-mode','target-upgrade','home-collision']);
