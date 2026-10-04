@@ -19,6 +19,10 @@ When you open a new Terminal session, activate the environment again with `sourc
 
 In ALIS, select **Patch existing databases**. Under **Environment**, select **Linux** or **Oracle Linux 9** and **Single instance**. Complete your patch configuration. In **Runbook → Automate with Ansible**, enter the execution host, SSH user, Oracle software owner and a dedicated working directory, then select **Download Ansible bundle .zip**. Each patch cycle needs its own working directory and global log directory.
 
+When importing a `.cfg`, choose **Software installation / download / patching (-patch)** in the import dialogue. A config file does not store the operation, execution mode, OS or topology. Database imports start in analyze; select the environment separately. Runbook always shows the Ansible section, with download disabled and an explanation when the workflow is unsupported. If the imported file was generated for upgrade, review incompatible keys in Options. `create_oracle_home` belongs to upgrade; patch deploy prepares its target home through the native patch workflow. Review `drop_grp_after_upgrade` against the patch parameter `drop_grp_after_patching` rather than silently discarding it.
+
+Out-of-place patching creates a new target Oracle home before moving the database to it. Keep distinct `source_home` and `target_home` paths and select `method=OUTOFPLACE` (the reviewed builds' default). `create_oracle_home=YES` enables home creation inside the upgrade workflow; it is not required by `-patch`. The Ansible deploy playbook uses native patch deploy, which includes target-home installation. Pin a specific RU with `patch=RECOMMENDED:19.32` or a versioned `RU` expression; naming the target directory `19.32` does not select that RU. The exported plan retains either kind of pin for final inventory verification.
+
 Extract the ZIP and use Terminal to enter the `alis-ansible` folder. Then run:
 
 ```sh

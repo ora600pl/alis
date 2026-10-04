@@ -37,7 +37,11 @@ Each of the **12 workflows** has a complete, editable example. The wizard includ
 
 All documentation, generated runbooks and Ansible bundle instructions are in English. The selected 26.5 or 26.6 profile pins the JAR build and configuration. The Ansible runner checks fresh stage/check reports, the active Oracle home, binary inventory and SQL patch registry. Recovery state remains on the execution host; a completed patch cycle does not deploy again. Start with `ansible-playbook test-local.yml` to learn the workflow locally before preparing the JAR and auto-login keystore on a database host.
 
-Import an existing `.cfg` to preserve comments, order and unknown settings, and review a line diff. Mode and workflow are inferred because they are not stored in a config file: verify both after import. Use **Save project** to retain planning context and execution preferences as well as configuration values. Closing the page otherwise loses the draft.
+Import an existing `.cfg` to preserve comments, order and unknown settings, and review a line diff. Select its operation explicitly in the import dialogue. For an RU within the same database release, choose **Software installation / download / patching (-patch)**. Database configurations start in **analyze**; software-only configurations infer download/create_home. A `.cfg` does not record the execution mode, OS or topology. Saved ALIS JSON projects retain those choices, including postfixups continuation. Review the selected workflow and mode at the top of Runbook; its Plan button lets you adjust them.
+
+**Automate with Ansible** is always visible in Runbook. For an unsupported workflow, it explains the supported scope and keeps download disabled. To enable export, select **Patch existing databases**, choose **Linux** and **Single instance** in Environment, enter the execution host and resolve configuration errors. Changing the workflow preserves imported values; incompatible upgrade parameters remain visible in Options for review. Use **Save project** before reloading the page, then import that JSON to restore the draft. Closing or reloading otherwise loses it.
+
+The patch workflow creates a new target Oracle home as part of out-of-place deployment. Use distinct source/target homes and `method=OUTOFPLACE`; `create_oracle_home` is the upgrade workflow's separate switch. A versioned `RECOMMENDED` or `RU` patch expression selects the intended RU and is retained by the Ansible exporter for inventory verification. A target directory name does not pin the patch version.
 
 ## Fresh-home example
 
@@ -64,7 +68,7 @@ Choose **AutoUpgrade 26.6.260925** (built 2026-09-25) or **26.5.260807** in Plan
 
 26.6 adds download choices for CPAT, DBSAT, Exadata, Enterprise Manager and GI images, 21c CSPU support, RAC startup timing, SEHA/RAC One Node guidance, clone PATH_PREFIX handling and explicit resume commands. Removed or unavailable parameters block export when changing profiles. The investigation combined manifest/help/templates, parameter registries, selected validators and execution consumers, CFR decompilation, Oracle documentation, and articles by Mike Dietrich, Daniel Overby Hansen and Rodrigo Jorge. [Profile evidence and update procedure](docs/PROFILE.md).
 
-The implementation has **248 Node tests, 32 Python tests, 200 real-JAR contract comparisons and 38 parser read-backs across both builds**, plus actual Ansible playbook runs against a local simulator. [Validation record](docs/VALIDATION.md).
+The implementation has **254 Node tests, 32 Python tests, 200 real-JAR contract comparisons and 38 parser read-backs across both builds**, plus actual Ansible playbook runs against a local simulator. [Validation record](docs/VALIDATION.md).
 
 A green status means that ALIS's implemented static checks pass. It does not verify MOS entitlements, patch availability/conflicts, installer prerequisites, actual database compatibility, RAC/Data Guard state, TDE or recovery. No Oracle deployment was performed to validate this release. All declared public parameters are cataloged; not every environment-dependent combination has been executed. Unknown imported options retain a warning; malformed, duplicate and explicitly unsupported settings block `.cfg` export.
 

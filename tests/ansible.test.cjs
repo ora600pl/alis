@@ -10,7 +10,43 @@ for(const f of profiles)test('Ansible package preserves the exact selected build
   for(const name of ['prepare.yml','analyze.yml','deploy.yml','verify.yml','test-local.yml','README.md','files/runner.py','tests/simulator.py'])assert(get(name),name);
   assert(!files.some(a=>a.name.endsWith('.jar')));assert(!get('deploy.yml').includes('restore -'));
 });
+for(const f of profiles){
+  test('database config import starts with analyze and preserves operation conflicts: '+f.id,async()=>{
+    const text='# Command previously used: -mode postfixups\nglobal.global_log_dir=/home/oracle/autoupgrade/logs\nglobal.keystore=/home/oracle/autoupgrade/keys\nupg1.sid=ORCLSE\nupg1.source_home=/opt/oracle/product/19c/dbhome_se\nupg1.target_home=/opt/oracle/product/19.32/dbhome_se\nupg1.target_version=19\nupg1.create_oracle_home=YES\nupg1.folder=/home/oracle/autoupgrade/bin\nupg1.download=YES\nupg1.patch=RECOMMENDED\nupg1.gold_image=YES\nupg1.drop_grp_after_upgrade=YES\nupg1.timezone_upg=YES\n';
+    const upgrade=C.parseConfig(text,f,'upgrade').project,patch=C.parseConfig(text,f,'patch').project;
+    for(const p of [upgrade,patch]){assert.equal(p.mode,'analyze');assert.equal(C.renderConfig(p),text);assert(W.previewCommand(p,f).endsWith('-mode analyze'));}
+    assert.equal(upgrade.operation,'upgrade');assert.equal(patch.jobs[0].scenario,'patch');
+    patch.jobs[0].context={os:'linux',topology:'single'};patch.automation={host:'lab.example.com'};
+    assert(C.validate(patch,f).some(i=>i.key==='upg1.create_oracle_home'&&i.code==='operation'));
+    assert(C.validate(patch,f).some(i=>i.key==='upg1.drop_grp_after_upgrade'&&i.code==='operation'));
+    await assert.rejects(A.bundle(patch,f));
+    delete patch.jobs[0].values.create_oracle_home;
+    delete patch.jobs[0].values.drop_grp_after_upgrade;
+    patch.jobs[0].values.drop_grp_after_patching='YES';
+    const files=await A.bundle(patch,f),config=files.find(file=>file.name==='files/autoupgrade.cfg').content;
+    assert(config.includes('upg1.drop_grp_after_patching=YES'));
+    assert(config.includes('upg1.timezone_upg=YES'));
+    assert(!config.includes('upg1.create_oracle_home='));
+    assert.equal(W.runbook(patch,f).steps.filter(s=>s.code.includes('-mode '))[0].code,W.previewCommand(patch,f));
+  });
+  test('saved postfixups project retains continuation mode rather than cfg import defaults: '+f.id,()=>{
+    const p=W.exampleProject(f.id,'upgrade');p.mode='postfixups';
+    const restored=C.loadProject(JSON.stringify(p),{[f.id]:f});
+    assert.equal(restored.mode,'postfixups');
+    assert(!W.runbook(restored,f).steps.some(s=>s.code.includes('-mode analyze')));
+    assert.equal(C.parseConfig(C.renderConfig(restored),f,'upgrade').project.mode,'analyze');
+  });
+}
 test('pinned RU is retained for inventory verification',async()=>{const p=example();p.jobs[0].values.patch='RU:19.28,OPATCH';const files=await A.bundle(p,profiles[1]);assert.equal(JSON.parse(files.find(f=>f.name==='files/plan.json').content).pinned_ru,'19.28');});
+for(const f of profiles)test('versioned RECOMMENDED pins the verified RU without changing the requested patch set: '+f.id,async()=>{
+  const p=example(f);p.jobs[0].values.patch='RECOMMENDED:19.32';p.jobs[0].values.method='OUTOFPLACE';
+  const files=await A.bundle(p,f),plan=JSON.parse(files.find(file=>file.name==='files/plan.json').content);
+  assert.equal(plan.pinned_ru,'19.32');
+  assert.equal(files.find(file=>file.name==='files/autoupgrade.cfg').content,C.renderConfig(p));
+  assert.equal(plan.target_home,p.jobs[0].values.target_home);
+  p.jobs[0].values.patch='RECOMMENDED';
+  assert.equal(JSON.parse((await A.bundle(p,f)).find(file=>file.name==='files/plan.json').content).pinned_ru,'');
+});
 for(const [name,mutate] of [
   ['missing host',p=>delete p.automation.host],['missing explicit topology',p=>delete p.jobs[0].context.topology],['RAC',p=>p.jobs[0].context.topology='rac'],['RAC One Node',p=>p.jobs[0].context.topology='racone'],['SEHA',p=>p.jobs[0].context.topology='seha'],['Data Guard primary',p=>p.jobs[0].context.role='primary_dg'],['standby',p=>p.jobs[0].context.role='standby'],['Windows',p=>p.jobs[0].context.os='windows'],['remote source',p=>p.jobs[0].context.location='remote'],['multiple databases',p=>p.jobs.push(C.clone(p.jobs[0]))],['password wallet',p=>p.execution={autologin:'NO'}],['password TDE',p=>p.jobs[0].context.tde='password'],['internal settings',p=>p.execution={settingsPath:'/tmp/settings'}],['WAIT drain',p=>p.jobs[0].values.drain_timeout='WAIT'],['scheduled database stage',p=>p.jobs[0].values.start_time='+1h'],['same homes',p=>p.jobs[0].values.target_home=p.jobs[0].values.source_home],['missing logs',p=>delete p.globals.global_log_dir],['parent traversal',p=>p.automation.workDir='/tmp/../oracle'],['Jinja path',p=>p.automation.workDir='/tmp/{{ lookup("pipe", "id") }}'],['host line injection',p=>p.automation.host='lab\nother: evil'],['invalid timeout',p=>p.automation.timeout='0'],['invalid poll',p=>p.automation.poll='0']
 ])test('Ansible blocks '+name,async()=>{const p=example();mutate(p);assert.equal(A.assess(p,profiles[1]).ready,false);await assert.rejects(A.bundle(p,profiles[1]));});
