@@ -28,7 +28,7 @@
       ansible.builtin.pause:
         prompt: >-
           Deploy will change the database on {{ inventory_hostname }}.
-          Review the collected analyze reports, backups and maintenance window.
+          Review the collected analyze reports, prepared target home, backups and maintenance window.
           Type YES to proceed; any other answer stops before deployment
       register: alis_deploy_answer
       when:

@@ -24,7 +24,12 @@ for(const profile of profiles){
     assert(exported.includes('upg1.gold_image.security_patch_level=HIGH'));
     assert.deepEqual(errors(C.parseConfig(exported,profile,'upgrade').project,profile),[]);
     assert(!C.command(p,'deploy').includes(' -patch'));
-    assert(W.markdown(p,profile).includes('Review integrated target-home media'));
+    p.mode='deploy';assert(W.markdown(p,profile).includes('Confirm the upgrade maintenance window'));
+    const preparation=W.upgradePreparation(p,profile);
+    assert.equal(preparation.home.operation,'patch');assert.equal(preparation.home.jobs[0].values.download,'NO');
+    assert.equal(preparation.home.globals.global_log_dir,p.globals.global_log_dir+'/software');
+    assert.equal(preparation.deploy.jobs[0].values.create_oracle_home,'NO');assert.equal(preparation.deploy.jobs[0].values.download,'NO');
+    assert.deepEqual(errors(preparation.home,profile),[]);assert.deepEqual(errors(preparation.deploy,profile),[]);
   });
   test(`${profile.id}: disabling home creation preserves images and requires an explicit repair`,()=>{
     const p=imported();assert(C.settingState(p,0,'create_oracle_home','NO',profile).disabled);

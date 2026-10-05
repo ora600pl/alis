@@ -559,6 +559,10 @@ class RunnerTests(RunnerHarness):
 class UpgradeRunnerTests(RunnerHarness):
     operation = 'upgrade'
 
+    def software(self):
+        for mode in ('analyze', 'download', 'create_home'):
+            self.success(mode)
+
     def test_native_report_directory_and_recheck_without_rerunning_analyze(self):
         self.success('analyze')
         status = self.root / 'logs/cfgtoollogs/upgrade/auto/status/status.json'
@@ -584,21 +588,30 @@ class UpgradeRunnerTests(RunnerHarness):
         self.assertTrue(previous['verified'])
         self.assertNotIn('error', previous)
         self.assertEqual(previous['previous_verification_error'], error)
+        self.success('download')
+        self.success('create_home')
         self.success('deploy')
 
-    def test_integrated_home_upgrade_and_read_only_repeat(self):
+    def test_staged_home_upgrade_and_read_only_repeat(self):
         self.success('prepare')
         self.assertFalse((self.root / 'target/bin/oracle').exists())
         self.success('analyze')
         self.assertFalse((self.root / 'target/bin/oracle').exists())
+        self.failure('deploy-gate', 'Run download.yml successfully')
+        self.success('download')
+        self.assertFalse((self.root / 'target/bin/oracle').exists())
+        self.failure('deploy-gate', 'Run create_home.yml successfully')
+        self.success('create_home')
+        self.assertTrue((self.root / 'target/bin/oracle').exists())
+        self.assertTrue(self.success('deploy-gate')['approval_required'])
         self.failure('deploy', 'maintenance-window approval', '--no-approve-deploy')
-        self.assertEqual(self.modes(), ['analyze'])
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
         self.success('deploy')
         self.success('verify')
         self.success('deploy', '--no-approve-deploy')
-        self.assertEqual(self.modes(), ['analyze', 'deploy'])
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
         commands = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
-        self.assertTrue(all('-patch' not in command for command in commands))
+        self.assertTrue(all(('-patch' in command) == (command[command.index('-mode') + 1] in ('download', 'create_home')) for command in commands))
         evidence = json.loads((self.run / 'results/verification.json').read_text())
         self.assertEqual(evidence['target_version'], '23')
         self.assertEqual(len(evidence['components']), 9)
@@ -612,6 +625,8 @@ class UpgradeRunnerTests(RunnerHarness):
         self.success('prepare')
         self.success('analyze')
         self.success('deploy')
+        self.success('download')
+        self.success('create_home')
         self.assertEqual(self.modes(), ['analyze', 'deploy'])
 
     def test_upgrade_failure_gates(self):
@@ -620,28 +635,28 @@ class UpgradeRunnerTests(RunnerHarness):
                 self.tearDown()
                 self.setUp()
                 if action == 'deploy':
-                    self.success('analyze')
+                    self.software()
                 self.fault(fault)
                 self.failure(action, message)
-                self.assertNotIn('download', self.modes())
-                self.assertNotIn('create_home', self.modes())
+                if action != 'deploy':
+                    self.assertNotIn('deploy', self.modes())
 
     def test_no_patch_only_modes_or_conversion(self):
-        self.failure('download', 'not part of the exported upgrade')
+        self.failure('download', 'Run analyze.yml successfully')
         self.fault('noncdb')
         self.failure('prepare', 'Non-CDB conversion')
 
     def test_verification_failure_never_repeats_upgrade(self):
-        self.success('analyze')
+        self.software()
         self.fault('components')
         self.failure('deploy', 'database components')
         self.assertFalse(self.success('deploy-gate')['approval_required'])
         self.fault('none')
         self.success('deploy', '--no-approve-deploy')
-        self.assertEqual(self.modes(), ['analyze', 'deploy'])
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
 
     def test_resume_upgrade_requires_fresh_approval(self):
-        self.success('analyze')
+        self.software()
         self.fault('interrupted')
         self.failure('deploy', 'rc=7')
         self.failure('deploy', 'maintenance-window approval', '--resume', '--no-approve-deploy')
@@ -650,6 +665,18 @@ class UpgradeRunnerTests(RunnerHarness):
         self.assertIn('-resume', commands[-1])
         self.assertNotIn('-patch', commands[-1])
 
+
+    def test_legacy_integrated_home_bundle_stops_before_approval(self):
+        self.change_plan(staged_upgrade_home=False)
+        self.failure('deploy-gate', 'older upgrade bundle')
+        self.failure('prepare', 'older upgrade bundle')
+        self.assertEqual(self.modes(), [])
+
+    def test_deploy_gate_rejects_a_missing_prepared_home(self):
+        self.software()
+        (self.root / 'target/bin/oracle').unlink()
+        self.failure('deploy-gate', 'home is incomplete')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
 
 class NativeUpgradeReportTests(unittest.TestCase):
     def setUp(self):

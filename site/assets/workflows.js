@@ -17,7 +17,7 @@
     ['cli','Oracle command reference','https://docs.oracle.com/en/database/oracle/oracle-database/26/upgrd/autoupgrade-command-line-parameters.html']
   ].map(([id,title,url])=>({id,title,url}));
   const GUIDES=[
-    {id:'stages',title:'Analyze first, review, then change the database',text:'For a fresh database operation, run analyze separately and review successful results before fixups, deploy or upgrade. The normal complete upgrade path is analyze then deploy; separate source fixups are optional. A split migration needs source analyze/fixups before transport and target upgrade. Resident PDBs must already be plugged in and open in UPGRADE mode; retain their source preparation reports. Postfixups continues a completed upgrade.',sources:['modes','processing-modes']},
+    {id:'stages',title:'Analyze first, review, then change the database',text:'For a fresh database operation, run analyze separately and review successful results before fixups, deploy or upgrade. For a new target home, complete separate download and create_home phases before maintenance-window approval and database deploy; separate source fixups are optional. A split migration needs source analyze/fixups before transport and target upgrade. Resident PDBs must already be plugged in and open in UPGRADE mode; retain their source preparation reports. Postfixups continues a completed upgrade.',sources:['modes','processing-modes']},
     {id:'install',title:'A new home is software, not a database',text:'Use -patch -mode create_home. SID and source_home are unnecessary on an empty server; provide installation settings instead. The OS user, OS packages and groups must already be prepared. Listener and database creation are subsequent tasks.',sources:['empty-home']},
     {id:'media',title:'Choose where the software comes from',text:'Online: load the MOS keystore and download media. Offline: set download=NO and transfer the complete patch directory with companion metadata, including aru-bug-map.json where generated. Individual-patch installation can require a separately supplied base release. Download-only work does not test patch conflicts.',sources:['downloads','release']},
     {id:'gold',title:'Three different image decisions',text:'gold_image controls Oracle-supplied images. create_gold_image packages the newly installed home. PATCH=GOLDIMAGE:filename.zip consumes your own local archive and cannot include other patches. These settings serve different purposes.',sources:['gold','own-gold']},
@@ -69,9 +69,32 @@
     p.jobs=jobs.map(j=>{const values={sid:j.values.sid||'',source_home:j.context?.location==='remote'?j.context.sourceOracleHome||'':j.values.source_home||'',target_version:String(C.effective(project,j,'target_version',profile).value||'')};if(!values.target_version){delete values.target_version;values.target_home=C.effective(project,j,'target_home',profile).value||'';}if(j.values.pdbs)values.pdbs=j.values.pdbs;return {prefix:j.prefix,scenario:'upgrade',values,pdb:{}};});
     return p;
   }
+  function upgradePreparation(project,profile){
+    if(project.operation!=='upgrade'||project.mode!=='deploy'||!project.jobs.every(j=>j.scenario==='upgrade'&&j.context?.location!=='remote'&&!j.values.target_cdb&&!j.values.source_dblink&&!yes(j.values.target_is_remote)))return null;
+    const jobs=project.jobs.filter(j=>yes(C.effective(project,j,'create_oracle_home',profile).value));
+    if(!jobs.length)return null;
+    const home=C.clone(project);home.operation='patch';home.mode='create_home';home.fileName=project.fileName.replace(/\.cfg$/,'.home.cfg');
+    home.globals=Object.fromEntries(Object.entries(home.globals).filter(([name])=>C.definition(profile,'patch',name)));
+    const logs=project.globals.global_log_dir||project.globals.autoupg_log_dir;
+    if(logs){home.globals.global_log_dir=logs.replace(/[\\/]$/,'')+'/software';delete home.globals.autoupg_log_dir;}
+    home.jobs=jobs.map(j=>{
+      const values=Object.fromEntries(Object.entries(j.values).filter(([name])=>C.definition(profile,'patch',name)));
+      values.download='NO';
+      if(j.values.target_base&&!values['home_settings.oracle_base'])values['home_settings.oracle_base']=j.values.target_base;
+      return {...C.clone(j),scenario:'prepare_home',values,pdb:{}};
+    });
+    const deploy=C.clone(project);deploy.fileName=project.fileName.replace(/\.cfg$/,'.deploy.cfg');
+    for(const job of deploy.jobs)if(jobs.some(j=>j.prefix===job.prefix)){
+      job.values.create_oracle_home='NO';job.values.download='NO';
+      for(const name of Object.keys(job.values))if(['patch','folder','download_folder','gold_image','gold_image.security_patch_level'].includes(name)||name.startsWith('home_settings.'))delete job.values[name];
+    }
+    return {home,deploy};
+  }
   function runbook(project,profile){
     const steps=[],artifacts=[{name:project.fileName,type:'configuration',content:C.renderConfig(project)}],issues=C.validate(project,profile),e=project.execution||{};
     const powershell=e.shell==='powershell',soft=project.operation==='patch'&&['download','create_home'].includes(project.mode),sp=sourceProject(project,profile);
+    const preparation=upgradePreparation(project,profile),execution=preparation?.deploy||project,software=preparation?.home||project;
+    if(preparation)artifacts.push({name:preparation.home.fileName,type:'home preparation',content:C.renderConfig(preparation.home)},{name:preparation.deploy.fileName,type:'deployment configuration',content:C.renderConfig(preparation.deploy)});
     const add=(title,where,text,code='',kind='shell',sources=[])=>steps.push({title,where,text,code,kind,sources});
     const fixups=(p,title,where,text,sources=[])=>{
       add(title,where,text,C.command(p,'fixups'),'shell',sources);
@@ -99,28 +122,28 @@
       const source=sp||project,where=sp||project.jobs.some(j=>yes(j.values.target_is_remote))?'Source host / Oracle software owner':'Database host / Oracle software owner';
       add(sp?'Analyze the source':'Analyze database readiness',where,'Run this as the first database phase, before fixups or deployment. Analysis reads the database; it does not upgrade it or create the target home.'+(project.operation==='patch'&&download?' With download=YES, native configuration validation may also fetch/check media.':'')+(sp?' Copy the separate source configuration to the source host; it uses the actual source Oracle home.':'')+(project.mode==='upgrade'?' Perform source analysis before any transport or manual plugging. If that has already happened, use the original source configuration and retained successful reports; verify SID, homes and PDB selection before running this command.':''),C.command(source,'analyze'),'shell',['modes','processing-modes']);
       add('Review analyze results before proceeding',where,'Wait for analyze to finish successfully for every job. Inspect the summary, status and database check reports at the printed log paths. Resolve errors and manual prerequisites, then rerun analyze. Review any supported automatic fixups and the backup/maintenance plan. Continue to a database-changing phase only after this review; a zero Java exit code alone is insufficient.','','manual',['modes','processing-modes']);
-      if(project.mode==='deploy'&&project.operation==='upgrade')add('Confirm the complete upgrade path','Operation owner','For a normal upgrade, analyze followed by deploy is the recommended path. Deploy repeats checks and performs pending fixups, the upgrade and applicable post-upgrade work. A separate fixups run is optional. A staged remote migration uses the split source/target sequence below.','','manual',['modes','processing-modes']);
+      if(project.mode==='deploy'&&project.operation==='upgrade')add('Confirm the complete upgrade path','Operation owner','After successful analysis, complete any software preparation below before approving database deployment. Deploy repeats checks and performs pending fixups, the upgrade and applicable post-upgrade work. A separate fixups run is optional. A staged remote migration uses the split source/target sequence below.','','manual',['modes','processing-modes']);
     }
-    if(download&&project.operation==='patch'&&(soft||project.mode==='deploy')){
-      add('Download and inspect the media','Download host','This downloads software; it does not apply database changes. Review patch inventory/patches_info.json and keep companion metadata with the files. Oracle service availability and entitlements are checked here.',C.command(project,'download'),'shell',['downloads']);
+    if(download&&(project.operation==='patch'&&(soft||project.mode==='deploy')||preparation)){
+      add('Download and inspect the media','Download host','This separate phase downloads software; it does not apply database changes.'+(preparation?' Explicit download mode fetches media even though the home-preparation file sets download=NO to keep installation offline.':'')+' Review patch inventory/patches_info.json and keep companion metadata with the files. Oracle service availability and entitlements are checked here.',C.command(software,'download'),'shell',['downloads']);
       if(profile.behavior?.resumeCli){
         const parts=project.jobs.flatMap(j=>C.patchParts(C.effective(project,j,'patch',profile).value,profile));
         if(parts.some(t=>['CPAT','DBSAT','EXAPATCHMGR','EXAQFSDP','OEM','GI'].includes(t.type)))add('Verify the selected download products','Media owner','Selections: '+parts.map(t=>t.token).join(', ')+'. CPAT, DBSAT, Exadata tools/bundles and OEM packages are downloaded for their separate product procedures. GI downloads a Grid Infrastructure image by default; gold_image=NO requests the GI RU patch instead. No GI, Exadata or OEM deployment is generated. TOOLS retains AU, OPATCH, SQLCL, CVU and AHF; add CPAT or DBSAT explicitly.','','manual');
         if(parts.some(t=>t.type==='SQLCL'||t.type==='TOOLS'))add('Review SQLcl checksum verification','Download owner','26.6 compares the SQLcl download with the published checksum and warns on verification failure. Inspect that result before using the tool.','','manual');
       }
     }
-    if(project.operation==='patch'&&project.mode!=='download'){
+    if(project.operation==='patch'&&project.mode!=='download'||preparation){
       add('Check the installation source','Target software host','Use a matching-platform base release plus patches, an Oracle-supplied image, or the selected local Gold Image. AUTO can fall back. When offline, preserve the complete staged media directory. Custom GOLDIMAGE input is exclusive; its patch level is already baked in.','','manual',['gold','own-gold']);
       if(project.mode==='create_home'||project.mode==='deploy'){
-        let homeProject=project;
+        let homeProject=software;
         if(project.mode==='deploy'&&project.jobs.some(j=>j.values.create_gold_image&&!/^NO$/i.test(j.values.create_gold_image))) {
           homeProject=C.clone(project);homeProject.fileName=project.fileName.replace(/\.cfg$/,'.home.cfg');homeProject.mode='create_home';
           for(const j of homeProject.jobs){j.values.create_gold_image='NO';j.scenario=/^GOLDIMAGE:/i.test(j.values.patch||'')?'gold_use':j.values.source_home?'prepare_home':'install';}
           artifacts.push({name:homeProject.fileName,type:'home preparation',content:C.renderConfig(homeProject)});
         }
-        add('Create the Oracle home','Target host / Oracle software owner','Run on the installation platform. AutoUpgrade installs software and applies the chosen media. A software-only job does not create a database.'+(homeProject!==project?' Use the separate home-preparation configuration with packaging disabled; the deploy configuration creates the output image once.':'')+(profile.behavior?.createHomePrechecks?' In 26.6 create_home runs its prechecks; review failures before proceeding.':''),C.command(homeProject,'create_home'),'shell',['empty-home']);
+        add('Create the Oracle home','Target host / Oracle software owner','Run on the installation platform. AutoUpgrade installs software and applies the chosen media. A software-only job does not create a database.'+(preparation?' Use the home-preparation file with download=NO; this phase consumes previously staged media. Keep the source database running in its original home.':homeProject!==project?' Use the separate home-preparation configuration with packaging disabled; the deploy configuration creates the output image once.':'')+(profile.behavior?.createHomePrechecks?' In 26.6 create_home runs its prechecks; review failures before proceeding.':''),C.command(homeProject,'create_home'),'shell',['empty-home']);
         const rootCommands=[];
-        if(!powershell)for(const j of project.jobs){const home=C.effective(project,j,'target_home',profile).value,inv=C.effective(project,j,'home_settings.inventory_location',profile).value;if(inv&&!inv.includes('%'))rootCommands.push('# Only if requested for this inventory\n'+q(project,inv.replace(/\/$/,'')+'/orainstRoot.sh'));if(home&&!home.includes('%'))rootCommands.push('# Only if requested by AutoUpgrade\n'+q(project,home.replace(/\/$/,'')+'/root.sh'));}
+        if(!powershell)for(const j of homeProject.jobs){const home=C.effective(homeProject,j,'target_home',profile).value,inv=C.effective(homeProject,j,'home_settings.inventory_location',profile).value;if(inv&&!inv.includes('%'))rootCommands.push('# Only if requested for this inventory\n'+q(project,inv.replace(/\/$/,'')+'/orainstRoot.sh'));if(home&&!home.includes('%'))rootCommands.push('# Only if requested by AutoUpgrade\n'+q(project,home.replace(/\/$/,'')+'/root.sh'));}
         add('Complete privileged installation steps','root / installation administrator','Execute only the scripts and node order requested by AutoUpgrade. Inspect rootsh.log/rootsh.json at the path printed for this job. If target_home contains placeholders, use the resolved script paths from those outputs. Existing sudo configuration may let AutoUpgrade handle this step.',[...new Set(rootCommands)].join('\n'),'manual',['empty-home']);
       }
     }
@@ -139,7 +162,7 @@
         add('Move/restore and mount/open in the target home','Target host','Use your validated backup/restore or transport procedure. Start the database as required by upgrade mode. Recheck SID, source/target paths and network/cluster configuration for this host.','','manual');
         add('Upgrade on the target','Target host','Run only after the source preparation and transfer are complete. Upgrade mode assumes the database is already running from the target home.',C.command(project,'upgrade'));
       }else{
-        if(project.jobs.some(j=>yes(C.effective(project,j,'create_oracle_home',profile).value)))add('Review integrated target-home media','Database host / Oracle software owner','With create_oracle_home=YES, deploy forwards this entry\u2019s media settings to autopatch.cfg and runs the patch create_home stage. download=YES also runs patch download first. gold_image selects Oracle-supplied input media; omission uses AUTO, while YES requests an Oracle Updater image. Keep the media directory and companion metadata. Review the generated autopatch.cfg and autopatch-jar.log under the job create-home directory. Analyze and fixups do not create the target home.','','manual',['gold']);
+        if(!preparation&&project.jobs.some(j=>yes(C.effective(project,j,'create_oracle_home',profile).value)))add('Review integrated target-home media','Database host / Oracle software owner','With create_oracle_home=YES, deploy forwards this entry\u2019s media settings to autopatch.cfg and runs the patch create_home stage. download=YES also runs patch download first. gold_image selects Oracle-supplied input media; omission uses AUTO, while YES requests an Oracle Updater image. Keep the media directory and companion metadata. Review the generated autopatch.cfg and autopatch-jar.log under the job create-home directory. Analyze and fixups do not create the target home.','','manual',['gold']);
         const clone=project.jobs.some(isClone);
         const waiting=project.jobs.filter(isClone).some(periodic),once=project.jobs.filter(isClone).some(j=>!periodic(j));
         if(project.mode==='fixups')fixups(sp||project,'Apply pre-operation fixups','Source database host','This changes the source database. Proceed only after the analyze review and a verified backup.');
@@ -151,7 +174,8 @@
             add('Confirm the current database state','Upgrade execution host','Confirm successful source analysis and fixups, backup/recovery, any transport or manual conversion, and startup appropriate to this mode. Upgrade can start with the database running in the source or target home; the stages depend on that state. For target-side PDB upgrade, the PDB must already be plugged into the target CDB and open in UPGRADE mode. Use retained source preparation reports after a move/clone; this command does not start another clone. Target-side upgrade does not provide the complete deploy backup/post-upgrade path.','','manual',['processing-modes']);
           }
           if(project.mode==='postfixups')add('Confirm the completed upgrade','Database host','This continues an existing upgrade. Require the successful earlier source analysis/preparation and completed upgrade reports. Confirm SID, homes and current database state. Do not rerun source analysis, transport or cloning against an already upgraded database.','','manual',['processing-modes']);
-          add(clone&&project.mode==='deploy'?'Start cloning / refresh':'Run the selected database operation',clone||stagedRemote?'Target database host':'Database host','Proceed after the operational gates above and the applicable backup/recovery checks.',C.command(project,project.mode));
+          if(preparation)add('Confirm the upgrade maintenance window','Database and application owners','Confirm successful source analysis, media checksums, the installed target home, completed privileged installation steps and backups. Explicitly approve database changes only now. Deploy uses the separate deployment file with download=NO and create_oracle_home=NO; it does not download or create software.','','manual',['processing-modes']);
+          add(clone&&project.mode==='deploy'?'Start cloning / refresh':'Run the selected database operation',clone||stagedRemote?'Target database host':'Database host','Proceed after the operational gates above and the applicable backup/recovery checks.',C.command(execution,project.mode));
         }
         if(clone&&project.mode==='deploy'){
           if(sp&&waiting&&!once)fixups(sp,'Source fixups at the maintenance window','Source host','Stop application writes according to your migration plan, then apply the source fixups using the separate file before final refresh.',['refresh']);
@@ -199,5 +223,5 @@
     return p;
   }
   function previewCommand(project,profile){const mode=C.initialMode(project),source=mode==='analyze'?sourceProject(project,profile):null;return C.command(source||project,mode);}
-  return {SOURCES,GUIDES,CLI,cliFor,runbook,markdown,sourceProject,base,configCommand,exampleProject,previewCommand};
+  return {SOURCES,GUIDES,CLI,cliFor,runbook,markdown,sourceProject,upgradePreparation,base,configCommand,exampleProject,previewCommand};
 });

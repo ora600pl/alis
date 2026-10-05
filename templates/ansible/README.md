@@ -1,6 +1,6 @@
 # ALIS + Ansible
 
-This bundle automates one local Linux single-instance database. Run Ansible on your Mac/Linux controller; the Oracle server is reached over SSH. Review `inventory.yml`, `host_vars/oracle_db.yml`, `files/autoupgrade.cfg` and `alis-runbook.md`.
+This bundle automates one local Linux single-instance database. Run Ansible on your Mac/Linux controller; the Oracle server is reached over SSH. Review `inventory.yml`, `host_vars/oracle_db.yml`, the configuration files in `files/` and `alis-runbook.md`.
 
 ## Install and test
 
@@ -21,7 +21,7 @@ Expect `failed=0`, `unreachable=0`. The simulator uses fake tools in a temporary
 - In ALIS, select **Patch existing databases** or **Upgrade a database**, then **Linux / Oracle Linux 9** and **Single instance**. Other migration, conversion, selected-PDB, cluster and Data Guard workflows require separate automation.
 - Prepare SSH, server Python 3.9+, supported Java, the exact profile JAR at the `jar` path in `files/plan.json`, installation prerequisites, backups and required root-script execution. Use distinct source/target homes and dedicated working/log directories for each cycle. Prepare an auto-login wallet interactively with the runbook if downloading media; keep secrets out of YAML/JSON.
 - **Patch:** `ansible-playbook patch.yml` runs prepare → analyze → download → create_home → **approval** → deploy → verify. Pin a specific RU in the patch expression, not the directory name. Imported `create_oracle_home` becomes explicit patch home preparation; review `config-adjustments.md` when supplied.
-- **Upgrade:** `ansible-playbook upgrade.yml` runs prepare → analyze → **approval** → deploy → verify, without `-patch`. Source release must be 12.2 or later, and target release must be higher. An existing target home is checked before analysis. With `create_oracle_home=YES`, native deploy downloads media when configured and creates the home after approval; source-home `jdk/bin/java`, media and root-script prerequisites must be ready. Non-CDB to PDB conversion is outside this exporter.
+- **Upgrade:** `ansible-playbook upgrade.yml` runs prepare → analyze → download → create_home → **approval** → deploy → verify. Source release must be 12.2 or later, and target release must be higher. With `create_oracle_home=YES`, software is downloaded and installed before approval; deploy uses that existing home. Already prepared homes skip software phases. Non-CDB to PDB conversion is outside this exporter.
 
 Add `-K` if sudo needs a password. Before an actual deploy or deploy resume, review the collected analyze reports and type **YES** at the maintenance-window prompt. Any other answer stops before database changes. Approval is not remembered for a later run. For a window already approved by your automation process:
 
@@ -29,11 +29,13 @@ Add `-K` if sudo needs a password. Before an actual deploy or deploy resume, rev
 ansible-playbook __ALIS_OPERATION__.yml -e alis_approve_deploy=true
 ```
 
+Upgrade software phases use `autoupgrade.home.cfg` with `-patch`. Its `download=NO` keeps installation offline; explicit `-mode download` still downloads the media first. Database deploy uses `autoupgrade.deploy.cfg` without `-patch`, with download/home creation disabled. The original `autoupgrade.cfg` is retained for analysis. Existing target homes skip software preparation.
+
 You can run the included stage playbooks separately. `deploy.yml` requires successful earlier phases and the same approval. `verify.yml` only checks a completed deployment. `--check` is rejected; use the simulator. `[ALIS]` updates show native stages and progress; unchanged operations get a heartbeat.
 
 ## Results and resume
 
-Read `artifacts/oracle_db/` and the native logs: reports are under `global_log_dir/cfgtoollogs/patch/auto/status/` for patching or `global_log_dir/cfgtoollogs/upgrade/auto/status/` for upgrades. Completion requires successful native reports/checklists, the active target home and successful local SQL patch registries in every container, including `PDB$SEED`. Upgrade also verifies container preservation and core component versions/statuses. Java exit code zero alone is insufficient. Complete application/service checks separately.
+Read `artifacts/oracle_db/` and the native logs: reports are under `global_log_dir/cfgtoollogs/patch/auto/status/` for patching or `global_log_dir/cfgtoollogs/upgrade/auto/status/` for upgrades. Separate upgrade home preparation uses `global_log_dir/software/cfgtoollogs/patch/auto/status/`. Completion requires successful native reports/checklists, the active target home and successful local SQL patch registries in every container, including `PDB$SEED`. Upgrade also verifies container preservation and core component versions/statuses. Java exit code zero alone is insufficient. Complete application/service checks separately.
 
 After resolving a failure, keep the **original bundle, JAR, configuration and recovery state** and run `ansible-playbook __ALIS_OPERATION__.yml -e alis_resume=true`. Completed stages are skipped. If native deploy completed but verification failed, fix the cause and run `verify.yml`; deployment is not repeated and no approval is needed. Do not replace an active bundle or clear recovery data for routine failures.
 

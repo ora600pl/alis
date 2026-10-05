@@ -36,19 +36,19 @@ def check_bundle(executable, operation, selected_faults):
         subprocess.run(['node', str(ROOT / 'tools/export_ansible_fixture.cjs'), str(bundle), operation], check=True, capture_output=True)
         env = dict(os.environ, ANSIBLE_HOME=str(Path(temp) / 'ansible-home'), ANSIBLE_LOCAL_TEMP=str(Path(temp) / 'local'), ANSIBLE_REMOTE_TEMP=str(Path(temp) / 'remote'), PYTHONDONTWRITEBYTECODE='1')
         outputs = []
-        if operation == 'patch' and not selected_faults:
+        if not selected_faults:
             check_approval(executable, bundle, env, temp)
-        names = [operation, 'prepare', 'analyze', 'deploy', 'verify', 'test-local'] + (['download', 'create_home'] if operation == 'patch' else [])
+        names = [operation, 'prepare', 'analyze', 'download', 'create_home', 'deploy', 'verify', 'test-local']
         for name in names:
             result = subprocess.run([executable, name + '.yml', '--syntax-check'], cwd=bundle, env=env, capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stdout + result.stderr)
         faults = [('none', 'deploy', 0), ('warnings', 'deploy', 0), ('progress', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('checksum', 'download', 2), ('root', 'create_home', 2), ('status', 'deploy', 2), ('sqlpatch', 'deploy', 2), ('interrupted', 'deploy', 2)]
         if operation == 'upgrade':
-            faults = [('none', 'deploy', 0), ('existing-home', 'deploy', 0), ('progress', 'deploy', 0), ('checks', 'analyze', 2), ('components', 'deploy', 2), ('interrupted', 'deploy', 2)]
+            faults = [('none', 'deploy', 0), ('existing-home', 'deploy', 0), ('progress', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('root', 'create_home', 2), ('components', 'deploy', 2), ('interrupted', 'deploy', 2)]
         if selected_faults:
             faults = [fault for fault in faults if fault[0] in selected_faults]
-        phases = ['analyze', 'download', 'create_home', 'deploy'] if operation == 'patch' else ['analyze', 'deploy']
+        phases = ['analyze', 'download', 'create_home', 'deploy']
         for fault, action, expected in faults:
             if (bundle / 'artifacts').exists():
                 shutil.rmtree(bundle / 'artifacts')
@@ -74,7 +74,8 @@ def check_bundle(executable, operation, selected_faults):
             status = json.loads((bundle / 'artifacts/localhost/analyze-status.json').read_text())
             commands = (Path(status['jobs'][0]['sourceHome']).parent / 'commands.jsonl').read_text()
             modes = [command[command.index('-mode') + 1] for command in map(json.loads, commands.splitlines())]
-            if modes != phases[:phases.index(action) + 1]:
+            expected_modes = ['analyze', 'deploy'] if fault == 'existing-home' else phases[:phases.index(action) + 1]
+            if modes != expected_modes:
                 raise RuntimeError('Unexpected operation sequence: ' + repr(modes))
             if expected != 0:
                 for following in phases[phases.index(action) + 1:]:

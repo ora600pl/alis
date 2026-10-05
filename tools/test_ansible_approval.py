@@ -54,6 +54,9 @@ def check_approval(executable, bundle, env, temp):
     def modes():
         return [args[args.index('-mode') + 1] for args in map(json.loads, (sandbox / 'commands.jsonl').read_text().splitlines())]
     prepared = ['analyze', 'download', 'create_home']
+    state = json.loads((sandbox / 'run/state.json').read_text())
+    if not (sandbox / 'target/bin/oracle').is_file() or not all(state['operations'].get(phase, {}).get('verified') for phase in prepared):
+        raise RuntimeError('Maintenance approval appeared before target-home preparation completed.')
     if modes() != prepared:
         raise RuntimeError('Unapproved headless run deployed the database.')
     code, output = interactive(command, bundle, env, 'NO')

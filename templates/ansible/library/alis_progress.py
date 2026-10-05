@@ -91,7 +91,9 @@ def snapshot(work_dir, action, plan_sha):
         started = operation['started']
         if type(started) not in (int, float) or started <= 0 or started > time.time() + 1:
             return fallback
-        base = Path(plan['log_dir']) / 'cfgtoollogs' / ('upgrade' if plan.get('operation') == 'upgrade' else 'patch') / 'auto/status'
+        upgrade = plan.get('operation') == 'upgrade' and action not in ('download', 'create_home')
+        log_dir = plan.get('home_log_dir', plan['log_dir']) if action == 'create_home' else plan['log_dir']
+        base = Path(log_dir) / 'cfgtoollogs' / ('upgrade' if upgrade else 'patch') / 'auto/status'
         status, status_time = read_json(base / 'status.json', started)
         progress, progress_time = read_json(base / 'progress.json', started)
         sid = 'create_home_1' if action == 'create_home' else plan['sid']
@@ -101,7 +103,7 @@ def snapshot(work_dir, action, plan_sha):
                 job['sourceHome'] != plan['source_home'] or job['targetHome'] != plan['target_home']):
             return fallback
         directory = Path(job['logDirectory'])
-        if (directory.parent.parent.resolve() != Path(plan['log_dir']).resolve() or
+        if (directory.parent.parent.resolve() != Path(log_dir).resolve() or
                 directory.parent.name.upper() != sid.upper() or directory.name != str(job['jobNo'])):
             return fallback
         stages = ongoing['stages']

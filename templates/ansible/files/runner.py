@@ -91,7 +91,7 @@ def check_status(status, progress, plan, mode, checklists):
     require(str(job.get('deployMode', '')).lower() == mode, 'AutoUpgrade status belongs to another mode.')
     require(type(job.get('jobNo')) is int and job['jobNo'] > 0 and job['jobNo'] == ongoing.get('jobNo'), 'Status and progress refer to different jobs.')
     require(job.get('sourceHome') == plan['source_home'] and job.get('targetHome') == plan['target_home'], 'AutoUpgrade reported different Oracle homes.')
-    upgrade = plan.get('operation', 'patch') == 'upgrade'
+    upgrade = plan.get('operation', 'patch') == 'upgrade' and mode not in ('download', 'create_home')
     stage_key, name_key = ('modules', 'moduleName') if upgrade else ('stages', 'stageName')
     stages = job.get(stage_key, [])
     require(isinstance(stages, list) and stages and all(isinstance(stage, dict) for stage in stages), 'AutoUpgrade did not report any completed stages.')
@@ -100,7 +100,7 @@ def check_status(status, progress, plan, mode, checklists):
     required = {'PRECHECKS'} if mode == 'analyze' else {'DB_PATCHING', 'POSTCHECKS'}
     if upgrade and mode == 'deploy':
         required = {'DBUPGRADE', 'POSTCHECKS', 'POSTFIXUPS', 'POSTUPGRADE'}
-        if plan.get('create_oracle_home'):
+        if plan.get('create_oracle_home') and not plan.get('staged_upgrade_home'):
             required.add('CREATEORACLEHOME')
     if mode == 'create_home':
         required = {'INSTALL', 'OH_PATCHING', 'OPTIONS', 'ROOTSH'}
@@ -180,7 +180,8 @@ class Runner:
         require(self.plan.get('format') == 2, 'Export a new bundle for the explicit four-phase workflow. Keep an existing cycle with its original runner.')
         require(self.plan.get('operation', 'patch') in ('patch', 'upgrade'), 'Unknown AutoUpgrade operation.')
         self.upgrade = self.plan.get('operation', 'patch') == 'upgrade'
-        self.phases = ('analyze', 'deploy') if self.upgrade else PHASES
+        self.staged_home = self.upgrade and bool(self.plan.get('create_oracle_home')) and bool(self.plan.get('staged_upgrade_home'))
+        self.phases = PHASES if not self.upgrade or self.staged_home else ('analyze', 'deploy')
         if self.upgrade:
             require(self.plan.get('target_version') in ('19', '21', '23'), 'Unsupported upgrade target release.')
         self.plan_hash = digest(args.plan)
@@ -191,6 +192,9 @@ class Runner:
         require(not self.config.is_symlink() and digest(self.config) == self.plan['config_sha256'], 'Configuration changed. Use the original bundle to resume.')
         self.home_config = self.root / 'autoupgrade.home.cfg'
         require(not self.home_config.is_symlink() and digest(self.home_config) == self.plan['home_config_sha256'], 'Home-preparation configuration changed. Use the original bundle to resume.')
+        self.deploy_config = self.root / 'autoupgrade.deploy.cfg' if self.plan.get('deploy_config_separate') else self.config
+        if self.plan.get('deploy_config_sha256'):
+            require(not self.deploy_config.is_symlink() and digest(self.deploy_config) == self.plan['deploy_config_sha256'], 'Deployment configuration changed. Use the original bundle to resume.')
         self.state_path = self.root / 'state.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {'plan_sha256': self.plan_hash, 'operations': {}}
         require(self.state.get('plan_sha256') == self.plan_hash, 'This directory belongs to another patch cycle.')
@@ -254,6 +258,7 @@ class Runner:
     def prepare(self):
         if self.state['operations'].get('deploy', {}).get('native_complete'):
             return self.verify()
+        self.require_staged_upgrade_home()
         self.validate_jar()
         database = self.database(self.plan['source_home'], 'database-before')
         if self.upgrade:
@@ -273,7 +278,6 @@ class Runner:
                 self.state['prepared_home'] = self.home(previous=self.state.get('prepared_home'))
                 save(self.state_path, self.state)
                 return {'changed': False, 'message': 'JAR, source database and existing target home checked.'}
-            require((Path(self.plan['source_home']) / 'jdk/bin/java').is_file(), 'Integrated home creation requires the source-home jdk/bin/java used by AutoUpgrade.')
         folder = self.plan.get('folder')
         require(folder and Path(folder).is_dir(), 'Prepare the patch media directory on the execution host first.')
         if self.plan.get('download'):
@@ -290,7 +294,9 @@ class Runner:
         return json.loads(path.read_text(encoding='utf-8'))
 
     def status(self, mode, started, ended=None):
-        base = Path(self.plan['log_dir']) / 'cfgtoollogs' / ('upgrade' if self.upgrade else 'patch') / 'auto/status'
+        upgrade = self.upgrade and mode not in ('download', 'create_home')
+        log_dir = self.plan.get('home_log_dir', self.plan['log_dir']) if mode == 'create_home' else self.plan['log_dir']
+        base = Path(log_dir) / 'cfgtoollogs' / ('upgrade' if upgrade else 'patch') / 'auto/status'
         reports = {}
         for name in ('status', 'progress'):
             path = base / (name + '.json')
@@ -300,9 +306,9 @@ class Runner:
         job = job_for(reports['status'], sid)
         require(isinstance(job.get('logDirectory'), str) and isinstance(job.get('dbName'), str) and re.fullmatch(r'[A-Za-z0-9_$#-]+', job['dbName']), 'Unknown AutoUpgrade job report directory.')
         directory = Path(job['logDirectory'])
-        require(directory.parent.parent.resolve() == Path(self.plan['log_dir']).resolve() and directory.parent.name.upper() == sid.upper() and directory.name == str(job.get('jobNo')), 'AutoUpgrade check reports belong to another job directory.')
+        require(directory.parent.parent.resolve() == Path(log_dir).resolve() and directory.parent.name.upper() == sid.upper() and directory.name == str(job.get('jobNo')), 'AutoUpgrade check reports belong to another job directory.')
         checklists = {}
-        stage_key, name_key = ('modules', 'moduleName') if self.upgrade else ('stages', 'stageName')
+        stage_key, name_key = ('modules', 'moduleName') if upgrade else ('stages', 'stageName')
         for stage in job.get(stage_key, []):
             if isinstance(stage, dict) and stage.get(name_key) in ('PRECHECKS', 'POSTCHECKS'):
                 name = stage[name_key]
@@ -428,7 +434,15 @@ class Runner:
         save(self.results / 'home-verification.json', evidence)
         return evidence
 
+    def require_staged_upgrade_home(self):
+        require(not (self.upgrade and self.plan.get('create_oracle_home') and not self.plan.get('staged_upgrade_home')),
+                'This older upgrade bundle creates software inside deploy. Update its staged preparation plan before deployment; do not approve this legacy workflow.')
+
     def execute(self, mode):
+        if self.upgrade and not self.plan.get('create_oracle_home') and mode in ('download', 'create_home'):
+            require(self.state['operations'].get('analyze', {}).get('verified'), 'Run analyze.yml successfully before software preparation.')
+            self.home(previous=self.state.get('prepared_home'))
+            return {'changed': False, 'message': 'Using the already prepared target home; no download or installation requested.'}
         require(mode in self.phases, 'This mode is not part of the exported upgrade workflow. Use upgrade.yml.')
         operations = self.state['operations']
         previous = operations.get(mode)
@@ -444,6 +458,7 @@ class Runner:
         if mode == 'deploy' and previous and previous.get('native_complete'):
             self.verify()
             return {'changed': False, 'message': 'AutoUpgrade had completed; final verification now passed without another deployment.'}
+        self.require_staged_upgrade_home()
         require(not previous or resume, 'The previous operation was interrupted or failed. Inspect its logs and use -e alis_resume=true with the original bundle.')
         require(not resume or previous, 'There is no interrupted operation to resume.')
         for prerequisite in self.phases[:self.phases.index(mode)]:
@@ -453,18 +468,18 @@ class Runner:
         self.validate_jar()
         if not resume:
             self.prepare()
-        if not self.upgrade and mode in ('create_home', 'deploy'):
+        if mode in ('create_home', 'deploy') and (not self.upgrade or self.staged_home):
             self.media(previous=operations['download']['evidence'])
-        if not self.upgrade and mode == 'deploy':
+        if mode == 'deploy' and (not self.upgrade or self.staged_home):
             self.home(previous=operations['create_home']['home'])
         if mode == 'create_home' and previous and previous.get('native_complete'):
             operations[mode].update(home=self.home(), verified=True, status='succeeded', ended=time.time())
             self.database(self.plan['source_home'], 'database-after-create_home')
             save(self.state_path, self.state)
             return {'changed': False, 'message': 'Home creation had completed; verification now passed without another installation.'}
-        config = self.home_config if mode == 'create_home' and self.plan.get('home_config_separate') else self.config
+        config = self.deploy_config if mode == 'deploy' else self.home_config if (mode == 'create_home' and self.plan.get('home_config_separate') or self.upgrade and mode == 'download') else self.config
         flags = [self.plan['java'], '-jar', self.plan['jar']]
-        if not self.upgrade:
+        if not self.upgrade or mode in ('download', 'create_home'):
             flags += ['-patch']
         flags += ['-config', str(config), '-mode', mode, '-noconsole']
         if self.plan.get('settings'):
@@ -506,8 +521,15 @@ class Runner:
     def deploy_gate(self):
         previous = self.state['operations'].get('deploy', {})
         if not previous.get('native_complete'):
+            self.require_staged_upgrade_home()
             for prerequisite in self.phases[:-1]:
                 require(self.state['operations'].get(prerequisite, {}).get('verified'), 'Run ' + prerequisite + '.yml successfully before deploy.yml.')
+            if self.upgrade:
+                if self.staged_home:
+                    self.media(previous=self.state['operations']['download']['evidence'])
+                    self.home(previous=self.state['operations']['create_home']['home'])
+                else:
+                    self.home(previous=self.state.get('prepared_home'))
         return {'changed': False, 'approval_required': not previous.get('native_complete', False)}
 
     def verify(self, require_deploy=True):
@@ -558,7 +580,12 @@ class Runner:
             # Keep both the bundle and AutoUpgrade log directory exclusive across ALIS runs.
             log_dir = Path(self.plan['log_dir'])
             log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            for path in sorted({self.root / '.alis.lock', log_dir / '.alis.lock'}):
+            paths = {self.root / '.alis.lock', log_dir / '.alis.lock'}
+            if self.plan.get('home_log_dir'):
+                home_logs = Path(self.plan['home_log_dir'])
+                home_logs.mkdir(mode=0o700, parents=True, exist_ok=True)
+                paths.add(home_logs / '.alis.lock')
+            for path in sorted(paths):
                 require(not path.is_symlink(), 'Lock path must not be a symbolic link.')
                 stream = open(path, 'a')
                 locks.append(stream)

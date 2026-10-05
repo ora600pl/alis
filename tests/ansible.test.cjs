@@ -125,8 +125,11 @@ for(const profile of profiles)for(const create of [false,true])test('upgrade exp
   const before=C.clone(p),files=await A.bundle(p,profile),get=n=>files.find(f=>f.name===n)?.content,plan=JSON.parse(get('files/plan.json'));
   assert.equal(plan.operation,'upgrade');assert.equal(plan.target_version,'23');assert.equal(plan.create_oracle_home,create);
   assert.equal(get('files/autoupgrade.cfg'),C.renderConfig(p));assert.deepEqual(p,before);
-  assert.deepEqual([...get('upgrade.yml').matchAll(/import_playbook: (\w+)\.yml/g)].map(m=>m[1]),['prepare','analyze','deploy','verify']);
-  for(const name of ['patch.yml','download.yml','create_home.yml'])assert(!get(name));
+  assert.deepEqual([...get('upgrade.yml').matchAll(/import_playbook: (\w+)\.yml/g)].map(m=>m[1]),['prepare','analyze','download','create_home','deploy','verify']);
+  assert(!get('patch.yml'));
+  assert(get('download.yml'));assert(get('create_home.yml'));
+  assert.equal(plan.staged_upgrade_home,create);
+  if(create){assert(get('files/autoupgrade.home.cfg').includes('download=NO'));assert(get('files/autoupgrade.deploy.cfg').includes('create_oracle_home=NO'));assert(!get('files/autoupgrade.deploy.cfg').includes('gold_image='));assert(!get('files/autoupgrade.deploy.cfg').includes('patch='));assert(get('alis-runbook.md').indexOf('Create the Oracle home')<get('alis-runbook.md').indexOf('Confirm the upgrade maintenance window'));}
   assert(get('test-local.yml').includes('import_playbook: upgrade.yml'));assert(get('test-local.yml').includes('          - upgrade'));
   assert(get('README.md').includes('ansible-playbook upgrade.yml -e alis_approve_deploy=true'));assert(!get('README.md').includes('__ALIS_OPERATION__'));
   assert(get('tasks/run.yml').includes("trim == 'YES'"));assert(get('tasks/run.yml').includes('deploy-gate'));

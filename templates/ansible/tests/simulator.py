@@ -37,8 +37,16 @@ def setup(root, failure='none', operation='patch'):
         (source / 'jdk/bin/java').write_text(script)
         if failure == 'existing-home':
             (target / 'bin/oracle').write_text('SIMULATION ONLY')
+    home_config = deploy_config = config
+    if operation == 'upgrade' and plan['create_oracle_home']:
+        home_config = config.replace('upg1.create_oracle_home=YES\n', '') + 'upg1.download=NO\n'
+        home_config = home_config.replace('global.global_log_dir=' + str(root / 'logs') + '\n', 'global.global_log_dir=' + str(root / 'logs/software') + '\n')
+        deploy_config = config.replace('upg1.create_oracle_home=YES', 'upg1.create_oracle_home=NO') + 'upg1.download=NO\n'
+        plan.update(staged_upgrade_home=True, home_config_separate=True, deploy_config_separate=True, home_log_dir=str(root / 'logs/software'))
+    plan.update(home_config_sha256=hashlib.sha256(home_config.encode()).hexdigest(), deploy_config_sha256=hashlib.sha256(deploy_config.encode()).hexdigest())
     (root / 'files/autoupgrade.cfg').write_text(config)
-    (root / 'files/autoupgrade.home.cfg').write_text(config)
+    (root / 'files/autoupgrade.home.cfg').write_text(home_config)
+    (root / 'files/autoupgrade.deploy.cfg').write_text(deploy_config)
     (root / 'files/plan.json').write_text(json.dumps(plan, indent=2) + '\n')
     shutil.copyfile(Path(__file__).resolve().parents[1] / 'files/runner.py', root / 'files/runner.py')
     print(json.dumps({'sandbox': str(root), 'simulation': True}))
@@ -56,9 +64,15 @@ def fake_java(root, fault):
     config = Path(sys.argv[sys.argv.index('-config') + 1])
     plan = json.loads((config.parent / 'plan.json').read_text())
     mode = sys.argv[sys.argv.index('-mode') + 1]
-    if ('-patch' in sys.argv) != (plan.get('operation', 'patch') == 'patch'):
+    upgrade = plan.get('operation') == 'upgrade'
+    if ('-patch' in sys.argv) != (not upgrade or mode in ('download', 'create_home')):
         print('Wrong AutoUpgrade operation flag')
         return 9
+    if upgrade:
+        expected = 'autoupgrade.home.cfg' if mode in ('download', 'create_home') else 'autoupgrade.deploy.cfg' if mode == 'deploy' and plan.get('staged_upgrade_home') else 'autoupgrade.cfg'
+        if config.name != expected or (mode == 'deploy' and 'create_oracle_home=YES' in config.read_text()):
+            print('Software preparation must be separate from database deployment')
+            return 9
     with open(root / 'commands.jsonl', 'a') as stream:
         stream.write(json.dumps(sys.argv[1:]) + '\n')
     if fault == 'interrupted' and mode == 'deploy' and not (root / 'interrupted-once').exists():
@@ -80,12 +94,9 @@ def fake_java(root, fault):
         print('Simulated download completed. No job status/progress is written by download mode.')
         return 0
     stages = ['PRECHECKS'] if mode == 'analyze' else ['PRECHECKS', 'DB_PATCHING', 'POSTCHECKS', 'COMPLETED']
-    upgrade = plan.get('operation') == 'upgrade'
+    upgrade = upgrade and mode not in ('download', 'create_home')
     if upgrade and mode == 'deploy':
         stages = ['GRP', 'PREUPGRADE', 'PRECHECKS', 'PREFIXUPS', 'DRAIN', 'DBUPGRADE', 'POSTCHECKS', 'POSTFIXUPS', 'POSTUPGRADE']
-        if plan.get('create_oracle_home'):
-            stages.insert(0, 'CREATEORACLEHOME')
-            (root / 'target/bin/oracle').write_text('SIMULATION ONLY')
         if fault == 'missing-upgrade':
             stages.remove('DBUPGRADE')
     if mode == 'create_home':
@@ -97,7 +108,8 @@ def fake_java(root, fault):
         if fault == 'switched-home':
             (root / 'active-home').write_text('target')
     sid = 'create_home_1' if mode == 'create_home' else plan['sid']
-    log_directory = root / 'logs' / sid / '100'
+    log_root = Path(plan.get('home_log_dir', plan['log_dir'])) if mode == 'create_home' else Path(plan['log_dir'])
+    log_directory = log_root / sid / '100'
     job = {'sid': sid, 'dbName': sid, 'logDirectory': str(log_directory), 'jobNo': 100, 'deployMode': mode.upper(), 'sourceHome': plan['source_home'], 'targetHome': plan['target_home'], 'stages': [{'stageName': stage, 'status': 1 if fault == 'status' and mode == 'deploy' else 0, 'errors': [{'reason': 'simulated error'}] if fault == 'status' and mode == 'deploy' else []} for stage in stages]}
     if fault == 'wrong-job':
         job['sid'] = 'OTHERDB'
@@ -126,7 +138,7 @@ def fake_java(root, fault):
                     os.utime(report_path, (1, 1))
             if upgrade:
                 stage['containers'].append({'container': sid, 'totalChecks': 0, 'completedChecks': 0, 'succeededChecks': 0, 'failedChecks': 0, 'runningChecks': [], 'finishedChecks': [], 'checksWithExecutionError': [], 'checksFailed': []})
-    directory = root / 'logs/cfgtoollogs' / ('upgrade' if upgrade else 'patch') / 'auto/status'
+    directory = log_root / 'cfgtoollogs' / ('upgrade' if upgrade else 'patch') / 'auto/status'
     directory.mkdir(parents=True, exist_ok=True)
     for name, value in [('status', job), ('progress', progress)]:
         path = directory / (name + '.json')

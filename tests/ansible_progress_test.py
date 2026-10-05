@@ -142,6 +142,23 @@ class ProgressTests(unittest.TestCase):
         self.write_reports()
         self.assertFalse(self.snapshot('create_home')['available'])
 
+    def test_upgrade_home_progress_uses_its_separate_patch_log_directory(self):
+        self.plan.update(operation='upgrade', home_log_dir=str(self.root / 'logs/software'))
+        self.plan_path.write_text(json.dumps(self.plan))
+        self.sha = hashlib.sha256(self.plan_path.read_bytes()).hexdigest()
+        self.state['plan_sha256'] = self.sha
+        self.state['operations']['create_home'] = self.state['operations'].pop('deploy')
+        self.state_path.write_text(json.dumps(self.state))
+        self.status['jobs'][0].update(sid='create_home_1', deployMode='CREATE_HOME', logDirectory=str(self.root / 'logs/software/create_home_1/101'))
+        self.report['jobs'][0]['sid'] = 'create_home_1'
+        self.report['jobs'][0]['stages'][1]['stage'] = 'INSTALL'
+        self.write_reports()
+        self.assertFalse(self.snapshot('create_home')['available'])
+        self.base = self.root / 'logs/software/cfgtoollogs/patch/auto/status'
+        self.base.mkdir(parents=True)
+        self.write_reports()
+        self.assertIn('INSTALL 42%', self.snapshot('create_home')['summary'])
+
     def test_native_100_percent_does_not_claim_success_and_verification_is_visible(self):
         for stage in self.report['jobs'][0]['stages']:
             stage['percentCompleted'] = '100'
