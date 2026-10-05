@@ -52,7 +52,7 @@ With `download=YES`, native analyze/deploy validation may also fetch media. Outp
 
 ## Results and resume
 
-Read `artifacts/oracle_db/` and the server-side AutoUpgrade logs. A zero Java exit code alone is insufficient. Complete application/service checks separately.
+Read `artifacts/oracle_db/` and the server-side AutoUpgrade logs (`global_log_dir/cfgtoollogs/patch/auto/status/`). The runner verifies each job's checklists: INFO, RECOMMEND and WARNING findings are retained for review; ERROR findings, execution errors or incomplete checks stop the run. A zero Java exit code alone is insufficient. Complete application/service checks separately.
 
 After fixing a failure, preserve the **original bundle, JAR, configuration and recovery state**:
 

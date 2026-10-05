@@ -89,7 +89,7 @@ node --check site/assets/workflows.js
 node --check site/assets/ansible.js
 ```
 
-Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same eight syntax checks and eight scenarios: success, failed analysis, missing downloads, checksum mismatch, unfinished root scripts, failed native stage, failed SQL patches and interruption, followed by global resume and a repeated complete cycle. The simulator runs patch.yml itself with a localhost-only host selector. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
+Optional actual Ansible integration checks (isolated simulator; no Oracle/SSH/MOS): install `ansible-core>=2.21,<2.22` in a temporary virtual environment and run `python3 tools/test_ansible.py`. CI runs the same eight syntax checks and nine scenarios: success, non-error check findings, failed analysis, missing downloads, checksum mismatch, unfinished root scripts, failed native stage, failed SQL patches and interruption, followed by global resume and a repeated complete cycle. The simulator runs patch.yml itself with a localhost-only host selector. `templates/ansible/` holds the package source; `tools/build.py` embeds it into `site/assets/ansible-templates.js` and the offline edition.
 
 Optional parser comparison (requires a separately obtained Oracle JAR and a JDK):
 

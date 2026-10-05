@@ -2,6 +2,7 @@ from pathlib import Path
 import fcntl
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,7 @@ TEMPLATES = ROOT / 'templates/ansible'
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="alis Oracle's lab ")
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         subprocess.run([sys.executable, '-S', str(TEMPLATES / 'tests/simulator.py'), 'setup', str(self.root)], check=True, capture_output=True)
         self.run = self.root / 'run'
         shutil.copytree(self.root / 'files', self.run)
@@ -83,6 +84,105 @@ class RunnerTests(unittest.TestCase):
     def test_failed_checks_cannot_certify_readiness_even_with_successful_stage(self):
         self.fault('checks')
         self.failure('analyze', 'failed or execution-error database checks')
+
+    def test_native_report_path_and_non_error_findings_for_both_profiles(self):
+        for profile in ('26.5.260807', '26.6.260925'):
+            with self.subTest(profile=profile):
+                self.change_plan(profile=profile, resume_cli=profile == '26.6.260925', create_home_prechecks=profile == '26.6.260925')
+                (self.root / 'profile.txt').write_text(profile)
+                self.fault('warnings')
+                evidence = self.success('analyze')['evidence']
+                self.assertEqual({finding['severity'] for finding in evidence['findings']['PRECHECKS']}, {'INFO', 'RECOMMEND', 'WARNING'})
+                self.assertTrue((self.root / 'logs/cfgtoollogs/patch/auto/status/status.json').is_file())
+                self.assertFalse((self.root / 'logs/status').exists())
+                self.success('download')
+                self.success('create_home')
+                self.success('deploy')
+                (self.run / 'state.json').unlink()
+                (self.root / 'active-home').write_text('source')
+
+    def test_checklist_errors_and_execution_errors_block_even_when_fixable(self):
+        for fault in ('fixable-error', 'check-execution'):
+            with self.subTest(fault=fault):
+                self.fault(fault)
+                self.failure('analyze', 'failed or execution-error database checks')
+                self.failure('deploy', 'Run analyze.yml successfully')
+                (self.run / 'state.json').unlink()
+
+    def test_missing_or_stale_checklists_cannot_certify_readiness(self):
+        for fault in ('missing-checklist', 'stale-checklist'):
+            with self.subTest(fault=fault):
+                self.fault(fault)
+                self.failure('analyze', 'Missing or stale AutoUpgrade')
+                self.failure('deploy', 'Run analyze.yml successfully')
+                (self.run / 'state.json').unlink()
+
+    def failed_report_verification(self, legacy=False):
+        self.fault('warnings')
+        self.success('analyze')
+        state = json.loads((self.run / 'state.json').read_text())
+        previous = state['operations']['analyze']
+        previous.update(verified=False, status='failed', error='Missing or stale AutoUpgrade ' + str(self.root / 'logs/status/status.json'))
+        previous.pop('native_complete')
+        if legacy:
+            previous.pop('command_complete')
+        (self.run / 'state.json').write_text(json.dumps(state))
+        return state
+
+    def test_recheck_existing_analyze_without_another_native_command(self):
+        self.failed_report_verification(legacy=True)
+        commands = self.modes()
+        result = self.success('recheck-analyze')
+        self.assertIn('not rerun', result['message'])
+        self.assertEqual(self.modes(), commands)
+        state = json.loads((self.run / 'state.json').read_text())
+        self.assertTrue(state['operations']['analyze']['verified'])
+        self.success('analyze', '--cycle')
+        self.success('download', '--cycle')
+        self.assertEqual(self.modes(), ['analyze', 'download'])
+
+    def test_recheck_rejects_reports_from_before_or_after_the_failed_run(self):
+        state = self.failed_report_verification()
+        paths = [self.root / 'logs/cfgtoollogs/patch/auto/status/status.json', self.root / 'logs/SIMDB/100/prechecks/simdb_checklist.json']
+        for path in paths:
+            original = path.stat().st_mtime
+            for timestamp, message in ((1, 'Missing or stale'), (state['operations']['analyze']['ended'] + 10, 'replaced after')):
+                with self.subTest(path=path, timestamp=timestamp):
+                    os.utime(path, (timestamp, timestamp))
+                    self.failure('recheck-analyze', message)
+                    self.assertFalse(json.loads((self.run / 'state.json').read_text())['operations']['analyze']['verified'])
+            os.utime(path, (original, original))
+        self.assertEqual(self.modes(), ['analyze'])
+
+    def test_recheck_cannot_accept_unexplained_findings_or_unknown_severity(self):
+        self.failed_report_verification()
+        path = self.root / 'logs/SIMDB/100/prechecks/simdb_checklist.json'
+        report = json.loads(path.read_text())
+        original = path.stat().st_mtime
+        for replacement, message in (([], 'does not explain'), ([{'checkname': 'WARNING_CHECK', 'severity': 'OTHER'}], 'Unknown AutoUpgrade')):
+            report['containers'][0]['checks'] = replacement
+            path.write_text(json.dumps(report))
+            os.utime(path, (original, original))
+            self.failure('recheck-analyze', message)
+        self.assertEqual(self.modes(), ['analyze'])
+
+    def test_recheck_requires_successful_command_and_no_later_operation(self):
+        state = self.failed_report_verification(legacy=True)
+        state['operations']['analyze']['error'] = 'analyze failed (rc=7)'
+        (self.run / 'state.json').write_text(json.dumps(state))
+        self.failure('recheck-analyze', 'did not finish its command successfully')
+        state['operations']['analyze']['command_complete'] = True
+        state['operations']['download'] = {'verified': False}
+        (self.run / 'state.json').write_text(json.dumps(state))
+        self.failure('recheck-analyze', 'A later phase exists')
+        self.assertEqual(self.modes(), ['analyze'])
+
+    def test_recheck_preserves_blocking_check_errors(self):
+        self.fault('checks')
+        self.failure('analyze', 'failed or execution-error database checks')
+        self.failure('recheck-analyze', 'failed or execution-error database checks')
+        self.failure('deploy', 'Run analyze.yml successfully')
+        self.assertEqual(self.modes(), ['analyze'])
 
     def test_failed_analysis_blocks_deploy_and_resume_for_both_profiles(self):
         for profile in ('26.5.260807', '26.6.260925'):

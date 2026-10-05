@@ -75,7 +75,8 @@ def fake_java(root, fault):
             (root / 'target/bin/oracle').write_text('SIMULATION ONLY')
         if fault == 'switched-home':
             (root / 'active-home').write_text('target')
-    job = {'sid': plan['sid'], 'jobNo': 100, 'deployMode': mode.upper(), 'sourceHome': plan['source_home'], 'targetHome': plan['target_home'], 'stages': [{'stageName': stage, 'status': 1 if fault == 'status' and mode == 'deploy' else 0, 'errors': [{'reason': 'simulated error'}] if fault == 'status' and mode == 'deploy' else []} for stage in stages]}
+    log_directory = root / 'logs' / plan['sid'] / '100'
+    job = {'sid': plan['sid'], 'dbName': plan['sid'], 'logDirectory': str(log_directory), 'jobNo': 100, 'deployMode': mode.upper(), 'sourceHome': plan['source_home'], 'targetHome': plan['target_home'], 'stages': [{'stageName': stage, 'status': 1 if fault == 'status' and mode == 'deploy' else 0, 'errors': [{'reason': 'simulated error'}] if fault == 'status' and mode == 'deploy' else []} for stage in stages]}
     if fault == 'wrong-job':
         job['sid'] = 'OTHERDB'
     if mode == 'create_home' and fault == 'root':
@@ -85,8 +86,19 @@ def fake_java(root, fault):
     progress = {'sid': plan['sid'], 'jobNo': 100, 'totalPercentCompleted': 80 if fault == 'incomplete' and mode == 'deploy' else 100, 'stages': [{'stage': stage, 'percentCompleted': '100'} for stage in stages]}
     for stage in progress['stages']:
         if stage['stage'] in ('PRECHECKS', 'POSTCHECKS'):
-            stage['containers'] = [{'container': 'CDB$ROOT', 'totalChecks': 1, 'completedChecks': 1, 'runningChecks': [], 'checksWithExecutionError': [], 'checksFailed': ['SIMULATED_CHECK'] if fault == 'checks' else []}]
-    directory = root / 'logs/status'
+            checks = [{'checkname': 'SIMULATED_CHECK', 'severity': 'ERROR', 'fixup_available': 'YES' if fault == 'fixable-error' else 'NO'}] if fault in ('checks', 'fixable-error') else []
+            if fault == 'warnings':
+                checks = [{'checkname': severity + '_CHECK', 'severity': severity, 'fixup_available': 'NO'} for severity in ('INFO', 'RECOMMEND', 'WARNING')]
+            stage['containers'] = [{'container': 'CDB$ROOT', 'totalChecks': max(1, len(checks)), 'completedChecks': max(1, len(checks)), 'runningChecks': [], 'checksWithExecutionError': ['SIMULATED_CHECK'] if fault == 'check-execution' else [], 'checksFailed': [check['checkname'] for check in checks]}]
+            report_directory = log_directory / stage['stage'].lower()
+            report_directory.mkdir(parents=True, exist_ok=True)
+            report_path = report_directory / (plan['sid'].lower() + '_checklist.json')
+            if fault != 'missing-checklist':
+                report_path.write_text(json.dumps({'SID': plan['sid'], 'containers': [{'containername': 'CDB$ROOT', 'checks': checks}]}))
+                if fault == 'stale-checklist':
+                    import os
+                    os.utime(report_path, (1, 1))
+    directory = root / 'logs/cfgtoollogs/patch/auto/status'
     directory.mkdir(parents=True, exist_ok=True)
     for name, value in [('status', job), ('progress', progress)]:
         path = directory / (name + '.json')

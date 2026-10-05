@@ -46,7 +46,30 @@ def job_for(report, sid):
     return jobs[0]
 
 
-def check_status(status, progress, plan, mode):
+def check_findings(report, containers, sid):
+    require(isinstance(report, dict) and str(report.get('SID', '')).upper() == sid.upper() and isinstance(report.get('containers'), list), 'Unknown or mismatched AutoUpgrade checklist.')
+    results = {}
+    findings = []
+    for container in report['containers']:
+        require(isinstance(container, dict) and isinstance(container.get('containername'), str) and isinstance(container.get('checks'), list), 'Unknown checklist container schema.')
+        name = container['containername']
+        require(name not in results, 'Duplicate checklist container: ' + name)
+        checks = {}
+        for check in container['checks']:
+            require(isinstance(check, dict) and isinstance(check.get('checkname'), str) and check.get('severity') in ('INFO', 'RECOMMEND', 'WARNING', 'ERROR'), 'Unknown AutoUpgrade check severity or schema.')
+            require(check['checkname'] not in checks, 'Duplicate checklist check: ' + check['checkname'])
+            checks[check['checkname']] = check['severity']
+            findings.append({'container': name, 'check': check['checkname'], 'severity': check['severity']})
+        results[name] = checks
+    require(set(results) == {container['container'] for container in containers}, 'Checklist and progress refer to different containers.')
+    for container in containers:
+        require(set(results[container['container']]) == set(container['checksFailed']), 'Checklist does not explain all reported database check findings.')
+    errors = [finding for finding in findings if finding['severity'] == 'ERROR']
+    require(not errors, 'AutoUpgrade has failed or execution-error database checks: ' + ', '.join(finding['container'] + '/' + finding['check'] for finding in errors) + '. Review the checklist before deployment.')
+    return findings
+
+
+def check_status(status, progress, plan, mode, checklists):
     job = job_for(status, plan['sid'])
     ongoing = job_for(progress, plan['sid'])
     require(str(job.get('deployMode', '')).lower() == mode, 'AutoUpgrade status belongs to another mode.')
@@ -64,6 +87,8 @@ def check_status(status, progress, plan, mode):
     require(required <= names, 'Missing required AutoUpgrade stages: ' + ', '.join(sorted(required - names)))
     require(ongoing.get('totalPercentCompleted') == 100, 'AutoUpgrade job has not reached 100%.')
     require(isinstance(ongoing.get('stages'), list) and ongoing['stages'] and all(isinstance(s, dict) and str(s.get('percentCompleted')) == '100' for s in ongoing['stages']), 'AutoUpgrade has unfinished stages.')
+    require(required <= {stage.get('stage') for stage in ongoing['stages']}, 'Progress is missing required AutoUpgrade stages.')
+    findings = {}
     for stage in ongoing['stages']:
         if stage.get('stage') not in ('PRECHECKS', 'POSTCHECKS'):
             continue
@@ -71,9 +96,13 @@ def check_status(status, progress, plan, mode):
         require(isinstance(containers, list) and containers, 'Missing per-container check results.')
         for container in containers:
             require(isinstance(container, dict), 'Unknown per-container check schema.')
-            require(container.get('runningChecks') == [] and container.get('checksWithExecutionError') == [] and container.get('checksFailed') == [], 'AutoUpgrade has unfinished, failed or execution-error database checks. Review the per-container check report before deployment.')
+            require(container.get('runningChecks') == [] and container.get('checksWithExecutionError') == [], 'AutoUpgrade has unfinished, failed or execution-error database checks. Review the per-container check report before deployment.')
+            require(isinstance(container.get('container'), str) and isinstance(container.get('checksFailed'), list) and all(isinstance(check, str) for check in container['checksFailed']), 'Unknown per-container finding schema.')
             require(type(container.get('totalChecks')) is int and container['totalChecks'] == container.get('completedChecks'), 'Not all database checks completed.')
-    return {'job': job.get('jobNo'), 'stages': sorted(names), 'mode': mode}
+        require(len({container['container'] for container in containers}) == len(containers), 'Duplicate progress container.')
+        require(stage['stage'] in checklists, 'Missing AutoUpgrade checklist for ' + stage['stage'])
+        findings[stage['stage']] = check_findings(checklists[stage['stage']], containers, plan['sid'])
+    return {'job': job.get('jobNo'), 'stages': sorted(names), 'mode': mode, 'findings': findings}
 
 
 DATABASE_SQL = """whenever oserror exit failure
@@ -187,15 +216,43 @@ class Runner:
             require((wallet / 'cwallet.sso').is_file(), 'Online patching needs a previously prepared AutoUpgrade auto-login wallet (cwallet.sso). Run -load_password interactively on the host first.')
         return {'changed': False, 'message': 'JAR, database identity, topology and media prerequisites checked.'}
 
-    def status(self, mode, started):
-        base = Path(self.plan['log_dir']) / 'status'
+    def report(self, path, started, ended=None):
+        require(path.is_file() and not path.is_symlink() and path.stat().st_mtime >= started - 1, 'Missing or stale AutoUpgrade ' + str(path))
+        require(ended is None or path.stat().st_mtime <= ended + 1, 'AutoUpgrade report was replaced after this operation: ' + str(path))
+        return json.loads(path.read_text(encoding='utf-8'))
+
+    def status(self, mode, started, ended=None):
+        base = Path(self.plan['log_dir']) / 'cfgtoollogs/patch/auto/status'
         reports = {}
         for name in ('status', 'progress'):
             path = base / (name + '.json')
-            require(path.is_file() and path.stat().st_mtime >= started - 1, 'Missing or stale AutoUpgrade ' + str(path))
-            reports[name] = json.loads(path.read_text(encoding='utf-8'))
+            reports[name] = self.report(path, started, ended)
             save(self.results / (mode + '-' + name + '.json'), reports[name])
-        return check_status(reports['status'], reports['progress'], self.plan, mode)
+        job = job_for(reports['status'], self.plan['sid'])
+        require(isinstance(job.get('logDirectory'), str) and isinstance(job.get('dbName'), str) and re.fullmatch(r'[A-Za-z0-9_$#-]+', job['dbName']), 'Unknown AutoUpgrade job report directory.')
+        directory = Path(job['logDirectory'])
+        require(directory.parent.parent.resolve() == Path(self.plan['log_dir']).resolve() and directory.parent.name.upper() == self.plan['sid'].upper() and directory.name == str(job.get('jobNo')), 'AutoUpgrade check reports belong to another job directory.')
+        checklists = {}
+        for stage in job.get('stages', []):
+            if isinstance(stage, dict) and stage.get('stageName') in ('PRECHECKS', 'POSTCHECKS'):
+                name = stage['stageName']
+                path = directory / name.lower() / (job['dbName'].lower() + '_checklist.json')
+                checklists[name] = self.report(path, started, ended)
+                save(self.results / (mode + '-' + name.lower() + '-checklist.json'), checklists[name])
+        return check_status(reports['status'], reports['progress'], self.plan, mode, checklists)
+
+    def recheck_analyze(self):
+        previous = self.state['operations'].get('analyze')
+        require(previous and previous.get('status') == 'failed' and not previous.get('verified'), 'No failed analyze verification to recheck.')
+        legacy_error = 'Missing or stale AutoUpgrade ' + str(Path(self.plan['log_dir']) / 'status/status.json')
+        require(previous.get('command_complete') or previous.get('error') == legacy_error, 'Analyze did not finish its command successfully; use explicit resume after reviewing its logs.')
+        require(not any(phase in self.state['operations'] for phase in PHASES[1:]), 'A later phase exists; analyze cannot be rechecked for this cycle.')
+        require(isinstance(previous.get('started'), (int, float)) and isinstance(previous.get('ended'), (int, float)) and previous['ended'] >= previous['started'], 'Missing analyze execution timestamps.')
+        self.validate_jar()
+        evidence = self.status('analyze', previous['started'], previous['ended'])
+        previous.update(native_complete=True, command_complete=True, verified=True, status='succeeded', evidence=evidence, rechecked=time.time())
+        save(self.state_path, self.state)
+        return {'changed': True, 'message': 'Existing analyze reports verified. AutoUpgrade analyze was not rerun.', 'evidence': evidence}
 
     def media(self, started=None, previous=None):
         folder = Path(self.plan['folder'])
@@ -319,6 +376,8 @@ class Runner:
             self.started_action = True
             if mode != 'download' or self.plan['download']:
                 self.command(flags, mode)
+            operations[mode]['command_complete'] = True
+            save(self.state_path, self.state)
             evidence = self.media(started=started) if mode == 'download' else self.status(mode, started)
             operations[mode].update(native_complete=True, evidence=evidence)
             save(self.state_path, self.state)
@@ -379,7 +438,7 @@ class Runner:
             if self.state_path.exists():
                 self.state = json.loads(self.state_path.read_text())
                 require(self.state.get('plan_sha256') == self.plan_hash, 'Patch-cycle identity changed.')
-            result = self.execute(self.args.action) if self.args.action in PHASES else getattr(self, self.args.action)()
+            result = self.execute(self.args.action) if self.args.action in PHASES else getattr(self, self.args.action.replace('-', '_'))()
             save(self.results / (self.args.action + '-result.json'), result)
             return result
         finally:
@@ -389,7 +448,7 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['prepare', *PHASES, 'verify'])
+    parser.add_argument('action', choices=['prepare', *PHASES, 'verify', 'recheck-analyze'])
     parser.add_argument('--plan', required=True)
     parser.add_argument('--plan-sha', required=True)
     parser.add_argument('--resume', action='store_true')

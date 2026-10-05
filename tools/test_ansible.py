@@ -29,7 +29,7 @@ def main():
             result = subprocess.run([executable, name + '.yml', '--syntax-check'], cwd=bundle, env=env, capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stdout + result.stderr)
-        faults = [('none', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('checksum', 'download', 2), ('root', 'create_home', 2), ('status', 'deploy', 2), ('sqlpatch', 'deploy', 2), ('interrupted', 'deploy', 2)]
+        faults = [('none', 'deploy', 0), ('warnings', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('checksum', 'download', 2), ('root', 'create_home', 2), ('status', 'deploy', 2), ('sqlpatch', 'deploy', 2), ('interrupted', 'deploy', 2)]
         phases = ['analyze', 'download', 'create_home', 'deploy']
         for fault, action, expected in faults:
             if (bundle / 'artifacts').exists():
@@ -38,21 +38,21 @@ def main():
             if result.returncode != expected:
                 raise RuntimeError(result.stdout + result.stderr)
             recap = re.search(r'localhost\s+:.*failed=(\d+).*', result.stdout)
-            if not recap or int(recap[1]) != (0 if fault == 'none' else 1):
+            if not recap or int(recap[1]) != (0 if expected == 0 else 1):
                 raise RuntimeError('Unexpected recap: ' + result.stdout)
             evidence = list((bundle / 'artifacts/localhost').glob('*'))
             if not evidence:
                 raise RuntimeError('Ansible did not fetch result files.')
             result_file = bundle / ('artifacts/localhost/' + action + '-result.json')
             saved = json.loads(result_file.read_text())
-            if (fault == 'none') == ('error' in saved):
+            if (expected == 0) == ('error' in saved):
                 raise RuntimeError('Fetched results do not match this run: ' + repr(saved))
             status = json.loads((bundle / 'artifacts/localhost/analyze-status.json').read_text())
             commands = (Path(status['jobs'][0]['sourceHome']).parent / 'commands.jsonl').read_text()
             modes = [command[command.index('-mode') + 1] for command in map(json.loads, commands.splitlines())]
             if modes != phases[:phases.index(action) + 1]:
                 raise RuntimeError('Unexpected operation sequence: ' + repr(modes))
-            if fault != 'none':
+            if expected != 0:
                 for following in phases[phases.index(action) + 1:]:
                     if (bundle / ('artifacts/localhost/' + following + '-result.json')).exists():
                         raise RuntimeError('A later stage ran after unsuccessful ' + action)
