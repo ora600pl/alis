@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import time
 import unittest
@@ -54,11 +55,18 @@ class ProgressTests(unittest.TestCase):
         self.sha = hashlib.sha256(self.plan_path.read_bytes()).hexdigest()
         self.state['plan_sha256'] = self.sha
         self.state_path.write_text(json.dumps(self.state))
-        self.base = self.root / 'logs/status'
+        self.base = self.root / 'logs/cfgtoollogs/upgrade/auto/status'
         self.base.mkdir(parents=True)
         stage = self.report['jobs'][0]['stages'][1]
         stage.update(stage='DBUPGRADE', containers=[{'container': 'PDB$SEED', 'percentCompleted': 30}])
         self.write_reports()
+        legacy = self.root / 'logs/status'
+        legacy.mkdir(parents=True)
+        for name in ('status', 'progress'):
+            shutil.copy2(self.base / (name + '.json'), legacy / (name + '.json'))
+        (self.base / 'progress.json').unlink()
+        self.assertFalse(self.snapshot()['available'])
+        shutil.copy2(legacy / 'progress.json', self.base / 'progress.json')
         summary = self.snapshot()['summary']
         self.assertIn('DBUPGRADE 42%', summary)
         self.assertIn('PDB$SEED 30%', summary)

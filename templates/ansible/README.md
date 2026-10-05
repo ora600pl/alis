@@ -33,7 +33,7 @@ You can run the included stage playbooks separately. `deploy.yml` requires succe
 
 ## Results and resume
 
-Read `artifacts/oracle_db/` and the native logs: patch reports are under `global_log_dir/cfgtoollogs/patch/auto/status/`, upgrade reports under `global_log_dir/status/`. Completion requires successful native reports/checklists, the active target home and successful local SQL patch registries in every container, including `PDB$SEED`. Upgrade also verifies container preservation and core component versions/statuses. Java exit code zero alone is insufficient. Complete application/service checks separately.
+Read `artifacts/oracle_db/` and the native logs: reports are under `global_log_dir/cfgtoollogs/patch/auto/status/` for patching or `global_log_dir/cfgtoollogs/upgrade/auto/status/` for upgrades. Completion requires successful native reports/checklists, the active target home and successful local SQL patch registries in every container, including `PDB$SEED`. Upgrade also verifies container preservation and core component versions/statuses. Java exit code zero alone is insufficient. Complete application/service checks separately.
 
 After resolving a failure, keep the **original bundle, JAR, configuration and recovery state** and run `ansible-playbook __ALIS_OPERATION__.yml -e alis_resume=true`. Completed stages are skipped. If native deploy completed but verification failed, fix the cause and run `verify.yml`; deployment is not repeated and no approval is needed. Do not replace an active bundle or clear recovery data for routine failures.
 

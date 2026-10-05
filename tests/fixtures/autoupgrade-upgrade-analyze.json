@@ -1,0 +1,387 @@
+{
+  "source": "Sanitized field extract from a completed native AutoUpgrade 26.6.260925 CDB analyze, 2026-10-05. Database identities and homes replaced; readiness counts and severities retained.",
+  "plan": {
+    "operation": "upgrade",
+    "sid": "LABDB",
+    "source_home": "/oracle/source",
+    "target_home": "/oracle/target"
+  },
+  "status": {
+    "totalJobs": 1,
+    "lastUpdateTime": "2026-10-05 19:25:43",
+    "jobs": [
+      {
+        "sid": "LABDB",
+        "dbName": "LABDB",
+        "jobNo": 100,
+        "deployMode": "ANALYZE",
+        "sourceHome": "/oracle/source",
+        "sourceVersion": "19.32.0.0.0",
+        "targetHome": "/oracle/target",
+        "targetVersion": "23.26",
+        "isCDB": true,
+        "isIncludeCDBRoot": true,
+        "logDirectory": "/logs/LABDB/100",
+        "conNumber": 3,
+        "modules": [
+          {
+            "moduleName": "PRECHECKS",
+            "status": 0,
+            "errors": []
+          }
+        ]
+      }
+    ]
+  },
+  "progress": {
+    "totalJobs": 1,
+    "totalFinishedJobs": 1,
+    "startTime": "2026-10-05 19:25:12",
+    "lastUpdateTime": "2026-10-05 19:25:43",
+    "jobs": [
+      {
+        "sid": "LABDB",
+        "jobNo": 100,
+        "isCDB": true,
+        "totalPercentCompleted": 100,
+        "totalContainers": 3,
+        "totalStages": 1,
+        "additionalInfo": "",
+        "stages": [
+          {
+            "stage": "PRECHECKS",
+            "percentCompleted": "100",
+            "totalChecks": 404,
+            "totalCompletedChecks": 404,
+            "containers": [
+              {
+                "container": "CDB$ROOT",
+                "totalChecks": 168,
+                "completedChecks": 168,
+                "succeededChecks": 145,
+                "failedChecks": 23,
+                "runningChecks": [],
+                "checksWithExecutionError": [],
+                "checksFailed": [
+                  "CYCLE_NUMBER",
+                  "AWR_EXPIRED_SNAPSHOTS",
+                  "POST_DICTIONARY",
+                  "POST_FIXED_OBJECTS",
+                  "PARAMETER_DEPRECATED",
+                  "NEW_TIME_ZONES_EXIST",
+                  "MANDATORY_UPGRADE_CHANGES",
+                  "DATAPATCH_TIMEOUT_SETTINGS",
+                  "RMAN_RECOVERY_VERSION",
+                  "TABLESPACES_INFO",
+                  "STANDARD_EDITION",
+                  "ORDIM_INFO_DESUPPORT",
+                  "JAVAVM_JIT_MEMORY",
+                  "POST_RECOMPILE",
+                  "POST_RECOMPILE_IN_CDB",
+                  "TIMESTAMP_MISMATCH",
+                  "COMPONENT_INFO",
+                  "INVALID_ORA_OBJ_INFO",
+                  "INVALID_APP_OBJ_INFO",
+                  "PARAM_VALUES_IN_MEM_ONLY",
+                  "EM_EXPRESS_PRESENT",
+                  "LCTR_SDO_CHECK",
+                  "MAINTENANCE_WINDOW"
+                ]
+              },
+              {
+                "container": "PDB$SEED",
+                "totalChecks": 118,
+                "completedChecks": 118,
+                "succeededChecks": 104,
+                "failedChecks": 14,
+                "runningChecks": [],
+                "checksWithExecutionError": [],
+                "checksFailed": [
+                  "POST_DICTIONARY",
+                  "POST_FIXED_OBJECTS",
+                  "NEW_TIME_ZONES_EXIST",
+                  "TABLESPACES_INFO",
+                  "ORDIM_INFO_DESUPPORT",
+                  "POST_RECOMPILE",
+                  "POST_RECOMPILE_IN_CDB",
+                  "TIMESTAMP_MISMATCH",
+                  "COMPONENT_INFO",
+                  "INVALID_ORA_OBJ_INFO",
+                  "INVALID_APP_OBJ_INFO",
+                  "EM_EXPRESS_PRESENT",
+                  "LCTR_SDO_CHECK",
+                  "MAINTENANCE_WINDOW"
+                ]
+              },
+              {
+                "container": "LABPDB",
+                "totalChecks": 118,
+                "completedChecks": 118,
+                "succeededChecks": 103,
+                "failedChecks": 15,
+                "runningChecks": [],
+                "checksWithExecutionError": [],
+                "checksFailed": [
+                  "POST_FIXED_OBJECTS",
+                  "POST_DICTIONARY",
+                  "NEW_TIME_ZONES_EXIST",
+                  "TABLESPACES_INFO",
+                  "ORDIM_INFO_DESUPPORT",
+                  "POST_RECOMPILE",
+                  "POST_RECOMPILE_IN_CDB",
+                  "TIMESTAMP_MISMATCH",
+                  "COMPONENT_INFO",
+                  "INVALID_ORA_OBJ_INFO",
+                  "INVALID_APP_OBJ_INFO",
+                  "LCTR_SDO_CHECK",
+                  "EM_EXPRESS_PRESENT",
+                  "CONSTRAINT_PRECHECK_UNMARKED",
+                  "MAINTENANCE_WINDOW"
+                ]
+              },
+              {
+                "container": "LABDB",
+                "totalChecks": 0,
+                "completedChecks": 0,
+                "succeededChecks": 0,
+                "failedChecks": 0,
+                "runningChecks": [],
+                "finishedChecks": [],
+                "checksWithExecutionError": [],
+                "checksFailed": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "checklist": {
+    "SID": "LABDB",
+    "containers": [
+      {
+        "containername": "CDB$ROOT",
+        "checks": [
+          {
+            "checkname": "AWR_EXPIRED_SNAPSHOTS",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "CYCLE_NUMBER",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "POST_DICTIONARY",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "POST_FIXED_OBJECTS",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "NEW_TIME_ZONES_EXIST",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "PARAMETER_DEPRECATED",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "MANDATORY_UPGRADE_CHANGES",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "DATAPATCH_TIMEOUT_SETTINGS",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "RMAN_RECOVERY_VERSION",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "TABLESPACES_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "STANDARD_EDITION",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "JAVAVM_JIT_MEMORY",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "ORDIM_INFO_DESUPPORT",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "TIMESTAMP_MISMATCH",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "POST_RECOMPILE",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "POST_RECOMPILE_IN_CDB",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "COMPONENT_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "INVALID_ORA_OBJ_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "INVALID_APP_OBJ_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "PARAM_VALUES_IN_MEM_ONLY",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "LCTR_SDO_CHECK",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "EM_EXPRESS_PRESENT",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "MAINTENANCE_WINDOW",
+            "severity": "WARNING"
+          }
+        ]
+      },
+      {
+        "containername": "PDB$SEED",
+        "checks": [
+          {
+            "checkname": "POST_DICTIONARY",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "POST_FIXED_OBJECTS",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "NEW_TIME_ZONES_EXIST",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "TABLESPACES_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "ORDIM_INFO_DESUPPORT",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "TIMESTAMP_MISMATCH",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "POST_RECOMPILE",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "POST_RECOMPILE_IN_CDB",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "COMPONENT_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "INVALID_ORA_OBJ_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "INVALID_APP_OBJ_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "LCTR_SDO_CHECK",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "EM_EXPRESS_PRESENT",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "MAINTENANCE_WINDOW",
+            "severity": "WARNING"
+          }
+        ]
+      },
+      {
+        "containername": "LABPDB",
+        "checks": [
+          {
+            "checkname": "POST_DICTIONARY",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "POST_FIXED_OBJECTS",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "NEW_TIME_ZONES_EXIST",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "TABLESPACES_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "ORDIM_INFO_DESUPPORT",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "TIMESTAMP_MISMATCH",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "POST_RECOMPILE",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "POST_RECOMPILE_IN_CDB",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "COMPONENT_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "INVALID_ORA_OBJ_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "INVALID_APP_OBJ_INFO",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "LCTR_SDO_CHECK",
+            "severity": "WARNING"
+          },
+          {
+            "checkname": "EM_EXPRESS_PRESENT",
+            "severity": "INFO"
+          },
+          {
+            "checkname": "CONSTRAINT_PRECHECK_UNMARKED",
+            "severity": "RECOMMEND"
+          },
+          {
+            "checkname": "MAINTENANCE_WINDOW",
+            "severity": "WARNING"
+          }
+        ]
+      }
+    ]
+  }
+}

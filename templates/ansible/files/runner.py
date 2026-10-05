@@ -51,7 +51,7 @@ def job_for(report, sid):
     return jobs[0]
 
 
-def check_findings(report, containers, sid):
+def check_findings(report, containers, sid, empty_database_event=None):
     require(isinstance(report, dict) and str(report.get('SID', '')).upper() == sid.upper() and isinstance(report.get('containers'), list), 'Unknown or mismatched AutoUpgrade checklist.')
     results = {}
     findings = []
@@ -66,8 +66,18 @@ def check_findings(report, containers, sid):
             checks[check['checkname']] = check['severity']
             findings.append({'container': name, 'check': check['checkname'], 'severity': check['severity']})
         results[name] = checks
-    require(set(results) == {container['container'] for container in containers}, 'Checklist and progress refer to different containers.')
+    # Native CDB upgrade completion can emit a database-name event with no checks.
+    # It is not a container checklist. Only this exact, entirely empty entry is allowed.
+    checked = []
     for container in containers:
+        if container['container'] not in results and container['container'] == empty_database_event:
+            require(all(type(container.get(key)) is int and container[key] == 0 for key in ('totalChecks', 'completedChecks', 'succeededChecks', 'failedChecks')) and
+                    all(container.get(key) == [] for key in ('runningChecks', 'finishedChecks', 'checksWithExecutionError', 'checksFailed')),
+                    'Database-level progress entry contains unexplained checks.')
+        else:
+            checked.append(container)
+    require(results and set(results) == {container['container'] for container in checked}, 'Checklist and progress refer to different containers.')
+    for container in checked:
         require(set(results[container['container']]) == set(container['checksFailed']), 'Checklist does not explain all reported database check findings.')
     errors = [finding for finding in findings if finding['severity'] == 'ERROR']
     require(not errors, 'AutoUpgrade has failed or execution-error database checks: ' + ', '.join(finding['container'] + '/' + finding['check'] for finding in errors) + '. Review the checklist before deployment.')
@@ -110,10 +120,11 @@ def check_status(status, progress, plan, mode, checklists):
             require(isinstance(container, dict), 'Unknown per-container check schema.')
             require(container.get('runningChecks') == [] and container.get('checksWithExecutionError') == [], 'AutoUpgrade has unfinished, failed or execution-error database checks. Review the per-container check report before deployment.')
             require(isinstance(container.get('container'), str) and isinstance(container.get('checksFailed'), list) and all(isinstance(check, str) for check in container['checksFailed']), 'Unknown per-container finding schema.')
-            require(type(container.get('totalChecks')) is int and container['totalChecks'] == container.get('completedChecks'), 'Not all database checks completed.')
+            require(type(container.get('totalChecks')) is int and container['totalChecks'] >= 0 and container['totalChecks'] == container.get('completedChecks'), 'Not all database checks completed.')
         require(len({container['container'] for container in containers}) == len(containers), 'Duplicate progress container.')
         require(stage['stage'] in checklists, 'Missing AutoUpgrade checklist for ' + stage['stage'])
-        findings[stage['stage']] = check_findings(checklists[stage['stage']], containers, sid)
+        empty_database_event = job.get('dbName') if upgrade and job.get('isCDB') is True and ongoing.get('isCDB') is True else None
+        findings[stage['stage']] = check_findings(checklists[stage['stage']], containers, sid, empty_database_event)
     return {'job': job.get('jobNo'), 'sid': job['sid'], 'stages': sorted(names), 'mode': mode, 'findings': findings}
 
 
@@ -279,7 +290,7 @@ class Runner:
         return json.loads(path.read_text(encoding='utf-8'))
 
     def status(self, mode, started, ended=None):
-        base = Path(self.plan['log_dir']) / ('status' if self.upgrade else 'cfgtoollogs/patch/auto/status')
+        base = Path(self.plan['log_dir']) / 'cfgtoollogs' / ('upgrade' if self.upgrade else 'patch') / 'auto/status'
         reports = {}
         for name in ('status', 'progress'):
             path = base / (name + '.json')
@@ -309,6 +320,8 @@ class Runner:
         require(isinstance(previous.get('started'), (int, float)) and isinstance(previous.get('ended'), (int, float)) and previous['ended'] >= previous['started'], 'Missing analyze execution timestamps.')
         self.validate_jar()
         evidence = self.status('analyze', previous['started'], previous['ended'])
+        if 'error' in previous:
+            previous['previous_verification_error'] = previous.pop('error')
         previous.update(native_complete=True, command_complete=True, verified=True, status='succeeded', evidence=evidence, rechecked=time.time())
         save(self.state_path, self.state)
         return {'changed': True, 'message': 'Existing analyze reports verified. AutoUpgrade analyze was not rerun.', 'evidence': evidence}

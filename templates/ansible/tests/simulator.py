@@ -107,6 +107,7 @@ def fake_java(root, fault):
         job['stages'] = [stage for stage in job['stages'] if stage['stageName'] != 'ROOTSH']
     progress = {'sid': sid, 'jobNo': 100, 'totalPercentCompleted': 80 if fault == 'incomplete' and mode == 'deploy' else 100, 'stages': [{'stage': stage, 'percentCompleted': '100'} for stage in stages]}
     if upgrade:
+        job['isCDB'] = progress['isCDB'] = True
         job['modules'] = [dict(moduleName=stage.pop('stageName'), **stage) for stage in job.pop('stages')]
     for stage in progress['stages']:
         if stage['stage'] in ('PRECHECKS', 'POSTCHECKS'):
@@ -123,7 +124,9 @@ def fake_java(root, fault):
                 if fault == 'stale-checklist':
                     import os
                     os.utime(report_path, (1, 1))
-    directory = root / ('logs/status' if upgrade else 'logs/cfgtoollogs/patch/auto/status')
+            if upgrade:
+                stage['containers'].append({'container': sid, 'totalChecks': 0, 'completedChecks': 0, 'succeededChecks': 0, 'failedChecks': 0, 'runningChecks': [], 'finishedChecks': [], 'checksWithExecutionError': [], 'checksFailed': []})
+    directory = root / 'logs/cfgtoollogs' / ('upgrade' if upgrade else 'patch') / 'auto/status'
     directory.mkdir(parents=True, exist_ok=True)
     for name, value in [('status', job), ('progress', progress)]:
         path = directory / (name + '.json')

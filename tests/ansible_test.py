@@ -1,6 +1,8 @@
 from pathlib import Path
+import copy
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -557,6 +559,33 @@ class RunnerTests(RunnerHarness):
 class UpgradeRunnerTests(RunnerHarness):
     operation = 'upgrade'
 
+    def test_native_report_directory_and_recheck_without_rerunning_analyze(self):
+        self.success('analyze')
+        status = self.root / 'logs/cfgtoollogs/upgrade/auto/status/status.json'
+        self.assertTrue(status.is_file())
+        self.assertFalse((self.root / 'logs/status/status.json').exists())
+        state_path = self.run / 'state.json'
+        state = json.loads(state_path.read_text())
+        previous = state['operations']['analyze']
+        error = 'Missing or stale AutoUpgrade ' + str(self.root / 'logs/status/status.json')
+        previous.update(status='failed', verified=False, error=error)
+        previous.pop('native_complete')
+        state_path.write_text(json.dumps(state))
+        legacy = self.root / 'logs/status/status.json'
+        legacy.parent.mkdir(parents=True)
+        shutil.copy2(status, legacy)
+        status.unlink()
+        self.failure('recheck-analyze', 'cfgtoollogs/upgrade/auto/status/status.json')
+        shutil.copy2(legacy, status)
+        self.success('recheck-analyze')
+        self.success('analyze', '--cycle')
+        self.assertEqual(self.modes(), ['analyze'])
+        previous = json.loads(state_path.read_text())['operations']['analyze']
+        self.assertTrue(previous['verified'])
+        self.assertNotIn('error', previous)
+        self.assertEqual(previous['previous_verification_error'], error)
+        self.success('deploy')
+
     def test_integrated_home_upgrade_and_read_only_repeat(self):
         self.success('prepare')
         self.assertFalse((self.root / 'target/bin/oracle').exists())
@@ -620,6 +649,62 @@ class UpgradeRunnerTests(RunnerHarness):
         commands = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
         self.assertIn('-resume', commands[-1])
         self.assertNotIn('-patch', commands[-1])
+
+
+class NativeUpgradeReportTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = json.loads((ROOT / 'tests/fixtures/autoupgrade-upgrade-analyze.json').read_text())
+        spec = importlib.util.spec_from_file_location('alis_runner', TEMPLATES / 'files/runner.py')
+        self.runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.runner)
+
+    def check(self):
+        f = self.fixture
+        return self.runner.check_status(f['status'], f['progress'], f['plan'], 'analyze', {'PRECHECKS': f['checklist']})
+
+    def test_completed_native_cdb_analysis_with_empty_database_event(self):
+        result = self.check()
+        self.assertEqual(result['job'], 100)
+        self.assertEqual(len(result['findings']['PRECHECKS']), 52)
+        self.assertEqual({e['container'] for e in result['findings']['PRECHECKS']}, {'CDB$ROOT', 'PDB$SEED', 'LABPDB'})
+
+    def test_only_an_empty_database_name_event_is_exempt_from_checklists(self):
+        original = copy.deepcopy(self.fixture)
+        changes = [('container', 'OTHERDB'), ('totalChecks', 1), ('completedChecks', 1), ('succeededChecks', 1), ('failedChecks', 1), ('finishedChecks', ['SOME_CHECK']), ('checksFailed', ['SOME_CHECK']), ('runningChecks', ['SOME_CHECK']), ('checksWithExecutionError', ['SOME_CHECK'])]
+        for key, value in changes:
+            with self.subTest(key=key):
+                self.fixture = copy.deepcopy(original)
+                self.fixture['progress']['jobs'][0]['stages'][0]['containers'][-1][key] = value
+                with self.assertRaises(RuntimeError):
+                    self.check()
+
+    def test_missing_seed_or_other_container_checklists_are_still_rejected(self):
+        original = copy.deepcopy(self.fixture)
+        for i in range(3):
+            with self.subTest(container=i):
+                self.fixture = copy.deepcopy(original)
+                self.fixture['checklist']['containers'].pop(i)
+                with self.assertRaisesRegex(RuntimeError, 'different containers'):
+                    self.check()
+
+    def test_database_event_exception_is_specific_to_cdb_upgrade(self):
+        for location in ('status', 'progress'):
+            self.fixture[location]['jobs'][0]['isCDB'] = False
+            with self.assertRaisesRegex(RuntimeError, 'different containers'):
+                self.check()
+            self.fixture[location]['jobs'][0]['isCDB'] = True
+
+    def test_native_error_findings_remain_blocking(self):
+        self.fixture['checklist']['containers'][1]['checks'][0]['severity'] = 'ERROR'
+        with self.assertRaisesRegex(RuntimeError, 'failed or execution-error database checks'):
+            self.check()
+
+    def test_an_empty_database_event_cannot_replace_all_container_results(self):
+        stage = self.fixture['progress']['jobs'][0]['stages'][0]
+        stage['containers'] = stage['containers'][-1:]
+        self.fixture['checklist']['containers'] = []
+        with self.assertRaisesRegex(RuntimeError, 'different containers'):
+            self.check()
 
 
 if __name__ == '__main__':

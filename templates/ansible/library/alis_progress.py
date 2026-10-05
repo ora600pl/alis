@@ -91,7 +91,7 @@ def snapshot(work_dir, action, plan_sha):
         started = operation['started']
         if type(started) not in (int, float) or started <= 0 or started > time.time() + 1:
             return fallback
-        base = Path(plan['log_dir']) / ('status' if plan.get('operation') == 'upgrade' else 'cfgtoollogs/patch/auto/status')
+        base = Path(plan['log_dir']) / 'cfgtoollogs' / ('upgrade' if plan.get('operation') == 'upgrade' else 'patch') / 'auto/status'
         status, status_time = read_json(base / 'status.json', started)
         progress, progress_time = read_json(base / 'progress.json', started)
         sid = 'create_home_1' if action == 'create_home' else plan['sid']
