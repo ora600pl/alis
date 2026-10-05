@@ -23,9 +23,21 @@
           - "{{ '--cycle' if (alis_cycle | default(false) | bool) else '--single' }}"
         expand_argument_vars: false
       async: "{{ alis_timeout | int }}"
-      poll: "{{ alis_poll_interval | int }}"
+      poll: 0
       vars:
         ansible_async_dir: "{{ alis_work_dir }}/async"
+      register: alis_job
+      changed_when: false
+      failed_when: alis_job.ansible_job_id is not defined
+
+    - name: Wait for the runner and report AutoUpgrade progress
+      alis_wait:
+        jid: "{{ alis_job.ansible_job_id | default('') }}"
+        work_dir: "{{ alis_work_dir }}"
+        action: "{{ alis_action }}"
+        plan_sha: "{{ lookup('ansible.builtin.file', (alis_bundle_dir | default(playbook_dir)) + '/files/plan.json', rstrip=false) | hash('sha256') }}"
+        interval: "{{ alis_poll_interval | int }}"
+        timeout: "{{ (alis_timeout | int) + 60 }}"
       register: alis_result
       changed_when: >-
         alis_action in ['analyze', 'download', 'create_home', 'deploy'] and '"changed": true' in (alis_result.stdout | default(''))

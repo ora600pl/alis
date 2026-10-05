@@ -29,7 +29,7 @@ def main():
             result = subprocess.run([executable, name + '.yml', '--syntax-check'], cwd=bundle, env=env, capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stdout + result.stderr)
-        faults = [('none', 'deploy', 0), ('warnings', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('checksum', 'download', 2), ('root', 'create_home', 2), ('status', 'deploy', 2), ('sqlpatch', 'deploy', 2), ('interrupted', 'deploy', 2)]
+        faults = [('none', 'deploy', 0), ('warnings', 'deploy', 0), ('progress', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('checksum', 'download', 2), ('root', 'create_home', 2), ('status', 'deploy', 2), ('sqlpatch', 'deploy', 2), ('interrupted', 'deploy', 2)]
         phases = ['analyze', 'download', 'create_home', 'deploy']
         for fault, action, expected in faults:
             if (bundle / 'artifacts').exists():
@@ -40,6 +40,12 @@ def main():
             recap = re.search(r'localhost\s+:.*failed=(\d+).*', result.stdout)
             if not recap or int(recap[1]) != (0 if expected == 0 else 1):
                 raise RuntimeError('Unexpected recap: ' + result.stdout)
+            if 'ASYNC POLL' in result.stdout:
+                raise RuntimeError('Generic async polling replaced the ALIS progress output.')
+            if fault == 'progress':
+                for percentage in (20, 60):
+                    if not re.search(r'\[ALIS\] localhost \| deploy \| job 100 \| DB_PATCHING ' + str(percentage) + r'%', result.stdout):
+                        raise RuntimeError('Native stage transition was not displayed: ' + result.stdout)
             evidence = list((bundle / 'artifacts/localhost').glob('*'))
             if not evidence:
                 raise RuntimeError('Ansible did not fetch result files.')

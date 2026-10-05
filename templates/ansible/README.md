@@ -39,6 +39,9 @@ ansible-playbook patch.yml
 
 Add `-K` if sudo requires a password. Runs **prepare → analyze → download → create_home → deploy → verify**, stopping on failure, without approval prompts between phases.
 
+The terminal shows `[ALIS]` updates with the job, native stage, percentage and running checks. `alis_poll_interval` controls polling; unchanged progress gets a heartbeat every 60 seconds. Download shows staged ZIP sizes because it has no native job percentage. Progress is advisory; completion still requires the runner's full verification.
+Preview stage changes locally: `ansible-playbook test-local.yml -e alis_test_failure=progress`.
+
 | Individual playbook | Purpose |
 | --- | --- |
 | `analyze.yml` | Native `-patch -mode analyze`; verify readiness reports. |
@@ -52,7 +55,7 @@ With `download=YES`, native analyze/deploy validation may also fetch media. Outp
 
 ## Results and resume
 
-Read `artifacts/oracle_db/` and the server-side AutoUpgrade logs (`global_log_dir/cfgtoollogs/patch/auto/status/`). Home-preparation jobs are named `create_home_1`; database jobs use the configured SID. The runner verifies each job's checklists: INFO, RECOMMEND and WARNING findings are retained for review; ERROR findings, execution errors or incomplete checks stop the run. A zero Java exit code alone is insufficient. Complete application/service checks separately.
+Read `artifacts/oracle_db/` and the server-side AutoUpgrade logs (`global_log_dir/cfgtoollogs/patch/auto/status/`). Home-preparation jobs are named `create_home_1`; database jobs use the configured SID. SQL-patch verification reads each container's local registry, including `PDB$SEED`. The runner verifies each job's checklists: INFO, RECOMMEND and WARNING findings are retained for review; ERROR findings, execution errors or incomplete checks stop the run. A zero Java exit code alone is insufficient. Complete application/service checks separately.
 
 After fixing a failure, preserve the **original bundle, JAR, configuration and recovery state**:
 

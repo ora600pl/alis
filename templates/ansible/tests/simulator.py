@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import sys
 import time
@@ -108,6 +109,19 @@ def fake_java(root, fault):
         if fault == 'stale' and mode == 'deploy':
             import os
             os.utime(path, (1, 1))
+    if fault == 'progress' and mode == 'deploy':
+        # Native reports include future stages at 0%, in execution order.
+        for percentage in (20, 60):
+            progress['totalPercentCompleted'] = percentage
+            for stage in progress['stages']:
+                stage['percentCompleted'] = str(percentage) if stage['stage'] == 'DB_PATCHING' else '100' if stage['stage'] == 'PRECHECKS' else '0'
+                stage['lastUpdateTime'] = '2026-10-05 12:00:00' if stage['stage'] in ('PRECHECKS', 'DB_PATCHING') else ''
+            (directory / 'progress.json').write_text(json.dumps({'totalJobs': 1, 'jobs': [progress]}))
+            time.sleep(4)
+        progress['totalPercentCompleted'] = 100
+        for stage in progress['stages']:
+            stage['percentCompleted'] = '100'
+        (directory / 'progress.json').write_text(json.dumps({'totalJobs': 1, 'jobs': [progress]}))
     print('Simulated ' + mode + ' finished. Java return code is zero.')
     if mode == 'deploy':
         (root / 'active-home').write_text('target')
@@ -119,9 +133,23 @@ def fake_sqlplus(root, fault):
         print('The running instance uses another Oracle home.')
         return 4
     sql = sys.stdin.read()
+    with (root / 'sql.jsonl').open('a') as stream:
+        stream.write(json.dumps(sql) + '\n')
     if 'ALIS_PATCH' in sql:
-        for container in (1, 2, 3):
+        # Real CDB views can omit PDB$SEED. Local queries must switch sessions.
+        names = {'CDB$ROOT': 1, 'PDB$SEED': 2, 'LABPDB': 3}
+        containers = [names[name.replace('""', '"')] for name in re.findall(r'alter session set container = "((?:[^"]|"")*)";', sql)]
+        if fault == 'noncdb':
+            containers = [0]
+        if 'from cdb_registry_sqlpatch' in sql:
+            containers = [1, 3]
+        for container in containers:
+            context = 99 if fault == 'patch-context' and container == 2 else container
+            if 'ALIS_PATCH_CONTEXT' in sql:
+                print('ALIS_PATCH_CONTEXT|' + str(context))
             if fault == 'missing-pdb' and container == 3:
+                continue
+            if fault == 'missing-seed' and container == 2:
                 continue
             print('ALIS_PATCH|{}|37960098|APPLY|{}'.format(container, 'WITH ERRORS' if fault == 'sqlpatch' else 'SUCCESS'))
     else:
@@ -130,9 +158,12 @@ def fake_sqlplus(root, fault):
         print('ALIS_DG|' + ('1' if fault == 'dataguard' else '0'))
         print('ALIS_DG_CONFIG|NONE')
         print('ALIS_PMON|123')
-        print('ALIS_CONTAINER|1|CDB$ROOT|READ WRITE')
-        print('ALIS_CONTAINER|2|PDB$SEED|READ ONLY')
-        print('ALIS_CONTAINER|3|LABPDB|' + ('MOUNTED' if fault == 'closed-pdb' else 'READ WRITE'))
+        if fault == 'noncdb':
+            print('ALIS_CONTAINER|0|SIMDB|READ WRITE')
+        else:
+            print('ALIS_CONTAINER|1|CDB$ROOT|READ WRITE')
+            print('ALIS_CONTAINER|2|PDB$SEED|READ ONLY')
+            print('ALIS_CONTAINER|3|LABPDB|' + ('MOUNTED' if fault == 'closed-pdb' else 'READ WRITE'))
     return 0
 
 

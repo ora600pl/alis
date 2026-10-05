@@ -81,6 +81,46 @@ class RunnerTests(unittest.TestCase):
     def test_verify_requires_a_deployment(self):
         self.failure('verify', 'No successfully completed AutoUpgrade deployment')
 
+    def test_sql_patch_queries_read_seed_locally_without_hidden_parameter_changes(self):
+        self.software()
+        self.success('deploy')
+        queries = [json.loads(line) for line in (self.root / 'sql.jsonl').read_text().splitlines()]
+        registry = next(query for query in queries if 'ALIS_PATCH_CONTEXT' in query)
+        self.assertIn('alter session set container = "PDB$SEED";', registry)
+        self.assertIn('from dba_registry_sqlpatch', registry)
+        self.assertNotIn('from cdb_registry_sqlpatch', registry)
+        self.assertNotIn('_exclude_seed_cdb_view', registry)
+        self.assertIn('ALIS_PATCH|2|37960098|APPLY|SUCCESS', (self.run / 'results/sqlpatch.log').read_text())
+
+    def test_actual_missing_seed_patch_still_blocks_and_verify_does_not_redeploy(self):
+        self.software()
+        self.fault('missing-seed')
+        self.failure('deploy', "('2', '37960098')")
+        state = json.loads((self.run / 'state.json').read_text())['operations']['deploy']
+        self.assertTrue(state['native_complete'])
+        self.assertFalse(state['verified'])
+        self.fault('none')
+        self.success('verify')
+        state = json.loads((self.run / 'state.json').read_text())['operations']['deploy']
+        self.assertTrue(state['verified'])
+        self.assertIn('previous_verification_error', state)
+        self.assertNotIn('error', state)
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
+
+    def test_sql_patch_context_mismatch_blocks_even_with_successful_patch_rows(self):
+        self.software()
+        self.fault('patch-context')
+        self.failure('deploy', 'queries did not reach every expected container')
+
+    def test_non_cdb_registry_does_not_attempt_container_switches(self):
+        self.fault('noncdb')
+        self.software()
+        self.success('deploy')
+        query = next(json.loads(line) for line in (self.root / 'sql.jsonl').read_text().splitlines() if 'ALIS_PATCH_CONTEXT' in json.loads(line))
+        self.assertNotIn('alter session set container', query)
+        result = json.loads((self.run / 'results/verification.json').read_text())
+        self.assertEqual(result['containers'], [['0', 'SIMDB', 'READ WRITE']])
+
     def test_failed_checks_cannot_certify_readiness_even_with_successful_stage(self):
         self.fault('checks')
         self.failure('analyze', 'failed or execution-error database checks')

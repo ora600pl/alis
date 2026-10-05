@@ -125,13 +125,32 @@ exit
 
 PATCH_SQL = """whenever oserror exit failure
 whenever sqlerror exit failure
-set heading off feedback off pagesize 0 linesize 32767 trimspool on verify off echo off
-select 'ALIS_PATCH|' || con_id || '|' || patch_id || '|' || action || '|' || status from (
-  select con_id, patch_id, action, status, row_number() over (partition by con_id, patch_id order by action_time desc, install_id desc) rn
-  from cdb_registry_sqlpatch
-) where rn=1;
-exit
+set heading off feedback off pagesize 0 linesize 32767 trimspool on verify off echo off define off
 """
+
+PATCH_QUERY = """select 'ALIS_PATCH_CONTEXT|' || sys_context('USERENV', 'CON_ID') from dual;
+select 'ALIS_PATCH|' || sys_context('USERENV', 'CON_ID') || '|' || patch_id || '|' || action || '|' || status from (
+  select patch_id, action, status, row_number() over (partition by patch_id order by action_time desc, install_id desc) rn
+  from dba_registry_sqlpatch
+) where rn=1;
+"""
+
+
+def patch_sql(containers):
+    require(containers and all(len(row) == 3 for row in containers), 'No container state was returned.')
+    require(all(row[2] in ('READ WRITE', 'READ ONLY') for row in containers), 'Closed PDBs prevent complete SQL-patch verification. Open them and verify again.')
+    ids = [row[0] for row in containers]
+    require(all(re.fullmatch(r'\d+', value) for value in ids) and len(set(ids)) == len(ids), 'Unknown or duplicate container identity.')
+    require('0' not in ids or ids == ['0'], 'Non-CDB identity mixed with CDB containers.')
+    sql = PATCH_SQL
+    for con_id, name, _ in containers:
+        require(name and not any(c in name for c in '\x00\r\n|'), 'Unsupported container name in SQL-patch verification.')
+        if con_id != '0':
+            # Supported session switch: read the local registry, including PDB$SEED.
+            # CDB_REGISTRY_SQLPATCH can omit seeds; never change hidden parameters.
+            sql += 'alter session set container = "' + name.replace('"', '""') + '";\n'
+        sql += PATCH_QUERY
+    return sql + 'exit\n'
 
 
 class Runner:
@@ -436,12 +455,13 @@ class Runner:
         home = self.plan['target_home']
         database = self.database(home, 'database-after')
         _, sql_ids = self.inventory()
-        registry = self.command([home + '/bin/sqlplus', '-L', '-S', '/ as sysdba'], 'sqlpatch', PATCH_SQL, home)
+        containers = database.get('ALIS_CONTAINER', [])
+        registry = self.command([home + '/bin/sqlplus', '-L', '-S', '/ as sysdba'], 'sqlpatch', patch_sql(containers), home)
         rows = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_PATCH|')]
         require(rows and all(len(row) == 4 for row in rows), 'SQL patch registry was empty or malformed.')
-        containers = database.get('ALIS_CONTAINER', [])
-        require(containers and all(len(row) == 3 for row in containers), 'No container state was returned.')
-        require(all(row[2] in ('READ WRITE', 'READ ONLY') for row in containers), 'Closed PDBs prevent complete SQL-patch verification. Open them and verify again.')
+        contexts = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_PATCH_CONTEXT|')]
+        require(contexts == [[row[0]] for row in containers], 'SQL patch queries did not reach every expected container.')
+        require(all(row[0] in {container[0] for container in containers} for row in rows), 'SQL patch rows belong to an unexpected container.')
         applied = {(row[0], row[1]) for row in rows if row[2:] == ['APPLY', 'SUCCESS']}
         require(not any(row[3] != 'SUCCESS' for row in rows), 'The latest SQL patch registry contains an unsuccessful action.')
         required = {(container[0], patch) for container in containers for patch in sql_ids}
@@ -449,6 +469,9 @@ class Runner:
         evidence = {'changed': False, 'message': 'Active home, database state, binary inventory and SQL patch registry verified.', 'containers': containers, 'sql_patch_ids': sorted(sql_ids), 'simulation': self.simulation}
         save(self.results / 'verification.json', evidence)
         if require_deploy:
+            previous = self.state['operations']['deploy']
+            if 'error' in previous:
+                previous['previous_verification_error'] = previous.pop('error')
             self.state['operations']['deploy'].update(verified=True, status='succeeded', ended=time.time())
             save(self.state_path, self.state)
         return evidence

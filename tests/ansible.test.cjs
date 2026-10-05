@@ -7,7 +7,9 @@ for(const f of profiles)test('Ansible package preserves the exact selected build
   const p=example(f),files=await A.bundle(p,f),get=n=>files.find(a=>a.name===n)?.content,plan=JSON.parse(get('files/plan.json'));
   assert.equal(plan.profile,f.id);assert.equal(plan.jar_sha256,f.jarSha256);assert.equal(plan.resume_cli,!!f.behavior.resumeCli);
   assert.equal(get('files/autoupgrade.cfg'),C.renderConfig(p));assert.equal(plan.config_sha256,crypto.createHash('sha256').update(C.renderConfig(p)).digest('hex'));
-  for(const name of ['patch.yml','prepare.yml','analyze.yml','download.yml','create_home.yml','deploy.yml','verify.yml','test-local.yml','README.md','files/runner.py','files/autoupgrade.home.cfg','tests/simulator.py'])assert(get(name),name);
+  for(const name of ['patch.yml','prepare.yml','analyze.yml','download.yml','create_home.yml','deploy.yml','verify.yml','test-local.yml','README.md','files/runner.py','files/autoupgrade.home.cfg','tests/simulator.py','action_plugins/alis_wait.py','library/alis_progress.py'])assert(get(name),name);
+  assert(get('tasks/run.yml').includes('poll: 0'));
+  assert(get('tasks/run.yml').includes('alis_wait:'));
   assert.equal(plan.format,2);
   assert.equal(get('files/autoupgrade.home.cfg'),C.renderConfig(p));
   assert.deepEqual([...get('patch.yml').matchAll(/import_playbook: (\w+)\.yml/g)].map(m=>m[1]),['prepare','analyze','download','create_home','deploy','verify']);
