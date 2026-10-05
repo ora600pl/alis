@@ -38,6 +38,11 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def report_sid(plan, mode):
+    # Both reviewed builds rename the single configuration prefix in CREATE_HOME.
+    return 'create_home_1' if mode == 'create_home' else plan['sid']
+
+
 def job_for(report, sid):
     require(isinstance(report, dict) and isinstance(report.get('jobs'), list), 'Unknown AutoUpgrade JSON schema.')
     require(all(isinstance(job, dict) for job in report['jobs']), 'Unknown AutoUpgrade job schema.')
@@ -70,8 +75,9 @@ def check_findings(report, containers, sid):
 
 
 def check_status(status, progress, plan, mode, checklists):
-    job = job_for(status, plan['sid'])
-    ongoing = job_for(progress, plan['sid'])
+    sid = report_sid(plan, mode)
+    job = job_for(status, sid)
+    ongoing = job_for(progress, sid)
     require(str(job.get('deployMode', '')).lower() == mode, 'AutoUpgrade status belongs to another mode.')
     require(type(job.get('jobNo')) is int and job['jobNo'] > 0 and job['jobNo'] == ongoing.get('jobNo'), 'Status and progress refer to different jobs.')
     require(job.get('sourceHome') == plan['source_home'] and job.get('targetHome') == plan['target_home'], 'AutoUpgrade reported different Oracle homes.')
@@ -101,8 +107,8 @@ def check_status(status, progress, plan, mode, checklists):
             require(type(container.get('totalChecks')) is int and container['totalChecks'] == container.get('completedChecks'), 'Not all database checks completed.')
         require(len({container['container'] for container in containers}) == len(containers), 'Duplicate progress container.')
         require(stage['stage'] in checklists, 'Missing AutoUpgrade checklist for ' + stage['stage'])
-        findings[stage['stage']] = check_findings(checklists[stage['stage']], containers, plan['sid'])
-    return {'job': job.get('jobNo'), 'stages': sorted(names), 'mode': mode, 'findings': findings}
+        findings[stage['stage']] = check_findings(checklists[stage['stage']], containers, sid)
+    return {'job': job.get('jobNo'), 'sid': job['sid'], 'stages': sorted(names), 'mode': mode, 'findings': findings}
 
 
 DATABASE_SQL = """whenever oserror exit failure
@@ -228,10 +234,11 @@ class Runner:
             path = base / (name + '.json')
             reports[name] = self.report(path, started, ended)
             save(self.results / (mode + '-' + name + '.json'), reports[name])
-        job = job_for(reports['status'], self.plan['sid'])
+        sid = report_sid(self.plan, mode)
+        job = job_for(reports['status'], sid)
         require(isinstance(job.get('logDirectory'), str) and isinstance(job.get('dbName'), str) and re.fullmatch(r'[A-Za-z0-9_$#-]+', job['dbName']), 'Unknown AutoUpgrade job report directory.')
         directory = Path(job['logDirectory'])
-        require(directory.parent.parent.resolve() == Path(self.plan['log_dir']).resolve() and directory.parent.name.upper() == self.plan['sid'].upper() and directory.name == str(job.get('jobNo')), 'AutoUpgrade check reports belong to another job directory.')
+        require(directory.parent.parent.resolve() == Path(self.plan['log_dir']).resolve() and directory.parent.name.upper() == sid.upper() and directory.name == str(job.get('jobNo')), 'AutoUpgrade check reports belong to another job directory.')
         checklists = {}
         for stage in job.get('stages', []):
             if isinstance(stage, dict) and stage.get('stageName') in ('PRECHECKS', 'POSTCHECKS'):
@@ -253,6 +260,32 @@ class Runner:
         previous.update(native_complete=True, command_complete=True, verified=True, status='succeeded', evidence=evidence, rechecked=time.time())
         save(self.state_path, self.state)
         return {'changed': True, 'message': 'Existing analyze reports verified. AutoUpgrade analyze was not rerun.', 'evidence': evidence}
+
+    def recheck_create_home(self):
+        operations = self.state['operations']
+        previous = operations.get('create_home')
+        require(previous and previous.get('status') == 'failed' and not previous.get('verified'), 'No failed create_home verification to recheck.')
+        require(previous.get('command_complete'), 'Home creation did not finish its command successfully; inspect its logs before resuming.')
+        require('deploy' not in operations, 'A deployment exists; home creation cannot be rechecked for this cycle.')
+        require(all(operations.get(phase, {}).get('verified') for phase in ('analyze', 'download')), 'Run analyze.yml and download.yml successfully before rechecking home creation.')
+        require(isinstance(previous.get('started'), (int, float)) and isinstance(previous.get('ended'), (int, float)) and previous['ended'] >= previous['started'], 'Missing create_home execution timestamps.')
+        self.validate_jar()
+        self.media(previous=operations['download']['evidence'])
+        evidence = self.status('create_home', previous['started'], previous['ended'])
+        previous.update(native_complete=True, evidence=evidence)
+        save(self.state_path, self.state)
+        try:
+            home = self.home()
+            self.database(self.plan['source_home'], 'database-after-create_home')
+        except (OSError, ValueError, KeyError, RuntimeError) as error:
+            previous.update(error=str(error), rechecked=time.time())
+            save(self.state_path, self.state)
+            raise
+        if 'error' in previous:
+            previous['previous_verification_error'] = previous.pop('error')
+        previous.update(home=home, verified=True, status='succeeded', rechecked=time.time())
+        save(self.state_path, self.state)
+        return {'changed': True, 'message': 'Existing create_home reports, inventory and source database verified. Home creation was not rerun.', 'evidence': evidence, 'home': home}
 
     def media(self, started=None, previous=None):
         folder = Path(self.plan['folder'])
@@ -448,7 +481,7 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['prepare', *PHASES, 'verify', 'recheck-analyze'])
+    parser.add_argument('action', choices=['prepare', *PHASES, 'verify', 'recheck-analyze', 'recheck-create-home'])
     parser.add_argument('--plan', required=True)
     parser.add_argument('--plan-sha', required=True)
     parser.add_argument('--resume', action='store_true')

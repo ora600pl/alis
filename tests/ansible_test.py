@@ -96,7 +96,11 @@ class RunnerTests(unittest.TestCase):
                 self.assertTrue((self.root / 'logs/cfgtoollogs/patch/auto/status/status.json').is_file())
                 self.assertFalse((self.root / 'logs/status').exists())
                 self.success('download')
-                self.success('create_home')
+                home = self.success('create_home')
+                self.assertEqual(home['evidence']['sid'], 'create_home_1')
+                checklist = json.loads((self.run / 'results/create_home-prechecks-checklist.json').read_text()) if profile == '26.6.260925' else None
+                if checklist:
+                    self.assertEqual(checklist['SID'], 'create_home_1')
                 self.success('deploy')
                 (self.run / 'state.json').unlink()
                 (self.root / 'active-home').write_text('source')
@@ -183,6 +187,95 @@ class RunnerTests(unittest.TestCase):
         self.failure('recheck-analyze', 'failed or execution-error database checks')
         self.failure('deploy', 'Run analyze.yml successfully')
         self.assertEqual(self.modes(), ['analyze'])
+
+    def failed_home_verification(self):
+        self.software()
+        state = json.loads((self.run / 'state.json').read_text())
+        previous = state['operations']['create_home']
+        previous.update(verified=False, status='failed', error='Expected exactly one AutoUpgrade job for SID SIMDB')
+        previous.pop('native_complete')
+        (self.run / 'state.json').write_text(json.dumps(state))
+        return state
+
+    def test_recheck_created_home_does_not_repeat_installation(self):
+        self.failed_home_verification()
+        commands = self.modes()
+        result = self.success('recheck-create-home')
+        self.assertIn('not rerun', result['message'])
+        self.assertEqual(result['evidence']['sid'], 'create_home_1')
+        self.assertEqual(commands, self.modes())
+        state = json.loads((self.run / 'state.json').read_text())
+        self.assertTrue(state['operations']['create_home']['verified'])
+        self.assertIn('previous_verification_error', state['operations']['create_home'])
+        for phase in ('analyze', 'download', 'create_home', 'deploy'):
+            self.success(phase, '--cycle')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
+
+    def test_recheck_home_keeps_identity_mode_homes_job_and_root_gates(self):
+        self.failed_home_verification()
+        path = self.root / 'logs/cfgtoollogs/patch/auto/status/status.json'
+        original = json.loads(path.read_text())
+        timestamp = path.stat().st_mtime
+        import copy
+        for field, value, message in (('sid', 'SIMDB', 'exactly one'), ('sid', 'create_home_2', 'exactly one'), ('deployMode', 'DEPLOY', 'another mode'), ('sourceHome', '/wrong/source', 'different Oracle homes'), ('targetHome', '/wrong/target', 'different Oracle homes')):
+            with self.subTest(field=field, value=value):
+                report = copy.deepcopy(original)
+                report['jobs'][0][field] = value
+                path.write_text(json.dumps(report)); os.utime(path, (timestamp, timestamp))
+                self.failure('recheck-create-home', message)
+        report = copy.deepcopy(original)
+        report['jobs'].append(copy.deepcopy(report['jobs'][0]))
+        path.write_text(json.dumps(report)); os.utime(path, (timestamp, timestamp))
+        self.failure('recheck-create-home', 'exactly one')
+        report = copy.deepcopy(original)
+        next(stage for stage in report['jobs'][0]['stages'] if stage['stageName'] == 'ROOTSH')['status'] = 1
+        path.write_text(json.dumps(report)); os.utime(path, (timestamp, timestamp))
+        self.failure('recheck-create-home', 'unsuccessful stage')
+        self.assertFalse(json.loads((self.run / 'state.json').read_text())['operations']['create_home']['verified'])
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
+
+    def test_recheck_home_requires_matching_progress_and_checklist(self):
+        self.failed_home_verification()
+        progress = self.root / 'logs/cfgtoollogs/patch/auto/status/progress.json'
+        original = progress.read_text(); timestamp = progress.stat().st_mtime
+        report = json.loads(original); report['jobs'][0]['jobNo'] += 1
+        progress.write_text(json.dumps(report)); os.utime(progress, (timestamp, timestamp))
+        self.failure('recheck-create-home', 'different jobs')
+        progress.write_text(original); os.utime(progress, (timestamp, timestamp))
+        checklist = self.root / 'logs/create_home_1/100/prechecks/create_home_1_checklist.json'
+        report = json.loads(checklist.read_text()); timestamp = checklist.stat().st_mtime
+        report['SID'] = 'SIMDB'
+        checklist.write_text(json.dumps(report)); os.utime(checklist, (timestamp, timestamp))
+        self.failure('recheck-create-home', 'mismatched AutoUpgrade checklist')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
+
+    def test_recheck_home_preserves_native_completion_when_inventory_fails(self):
+        self.failed_home_verification()
+        binary = self.root / 'target/bin/oracle'
+        binary.unlink()
+        self.failure('recheck-create-home', 'home is incomplete')
+        state = json.loads((self.run / 'state.json').read_text())['operations']['create_home']
+        self.assertTrue(state['native_complete'])
+        self.assertFalse(state['verified'])
+        binary.write_text('SIMULATION ONLY')
+        self.success('create_home', '--resume')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
+
+    def test_recheck_home_requires_original_prerequisites_and_active_source(self):
+        state = self.failed_home_verification()
+        state['operations']['download']['verified'] = False
+        (self.run / 'state.json').write_text(json.dumps(state))
+        self.failure('recheck-create-home', 'analyze.yml and download.yml')
+        state['operations']['download']['verified'] = True
+        state['operations']['deploy'] = {'status': 'failed'}
+        (self.run / 'state.json').write_text(json.dumps(state))
+        self.failure('recheck-create-home', 'A deployment exists')
+        del state['operations']['deploy']
+        (self.run / 'state.json').write_text(json.dumps(state))
+        (self.root / 'active-home').write_text('target')
+        self.failure('recheck-create-home', 'database-after-create_home failed')
+        self.assertFalse(json.loads((self.run / 'state.json').read_text())['operations']['create_home']['verified'])
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
 
     def test_failed_analysis_blocks_deploy_and_resume_for_both_profiles(self):
         for profile in ('26.5.260807', '26.6.260925'):
