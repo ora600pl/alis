@@ -107,7 +107,7 @@ for(const f of profiles)test('versioned RECOMMENDED pins the verified RU without
 for(const [name,mutate] of [
   ['missing host',p=>delete p.automation.host],['missing explicit topology',p=>delete p.jobs[0].context.topology],['RAC',p=>p.jobs[0].context.topology='rac'],['RAC One Node',p=>p.jobs[0].context.topology='racone'],['SEHA',p=>p.jobs[0].context.topology='seha'],['Data Guard primary',p=>p.jobs[0].context.role='primary_dg'],['standby',p=>p.jobs[0].context.role='standby'],['Windows',p=>p.jobs[0].context.os='windows'],['remote source',p=>p.jobs[0].context.location='remote'],['multiple databases',p=>p.jobs.push(C.clone(p.jobs[0]))],['password wallet',p=>p.execution={autologin:'NO'}],['password TDE',p=>p.jobs[0].context.tde='password'],['internal settings',p=>p.execution={settingsPath:'/tmp/settings'}],['WAIT drain',p=>p.jobs[0].values.drain_timeout='WAIT'],['scheduled database stage',p=>p.jobs[0].values.start_time='+1h'],['same homes',p=>p.jobs[0].values.target_home=p.jobs[0].values.source_home],['missing logs',p=>delete p.globals.global_log_dir],['parent traversal',p=>p.automation.workDir='/tmp/../oracle'],['Jinja path',p=>p.automation.workDir='/tmp/{{ lookup("pipe", "id") }}'],['host line injection',p=>p.automation.host='lab\nother: evil'],['invalid timeout',p=>p.automation.timeout='0'],['invalid poll',p=>p.automation.poll='0']
 ])test('Ansible blocks '+name,async()=>{const p=example();mutate(p);assert.equal(A.assess(p,profiles[1]).ready,false);await assert.rejects(A.bundle(p,profiles[1]));});
-test('upgrade and software preparation are outside the existing-database export',()=>{for(const scenario of ['upgrade','install','download','gold_use']){const p=W.exampleProject(profiles[1].id,scenario);assert(!A.assess(p,profiles[1]).ready);}});
+test('software preparation is outside the existing-database export',()=>{for(const scenario of ['install','download','gold_use']){const p=W.exampleProject(profiles[1].id,scenario);assert(!A.assess(p,profiles[1]).ready);}});
 test('non-Linux media cannot be deployed to the Linux execution host',()=>{const p=example();p.jobs[0].values.platform='WINDOWS.X64';assert(!A.assess(p,profiles[1]).ready);});
 test('saved projects round-trip Ansible settings and reject malformed maps',()=>{const p=example();assert.deepEqual(C.loadProject(JSON.stringify(p),{[profiles[1].id]:profiles[1]}),p);p.automation=[];assert.throws(()=>C.loadProject(JSON.stringify(p),{[profiles[1].id]:profiles[1]}));});
 test('literal paths retain spaces, quotes and shell metacharacters without shell execution',async()=>{const p=example();p.automation.workDir="/tmp/Oracle's home $(id)";p.execution={javaPath:"/tmp/Java's bin/java"};const files=await A.bundle(p,profiles[1]);const plan=JSON.parse(files.find(f=>f.name==='files/plan.json').content);assert.equal(plan.java,p.execution.javaPath);assert.equal(plan.jar,p.automation.workDir+'/autoupgrade.jar');assert(files.find(f=>f.name==='host_vars/oracle_db.yml').content.includes('!unsafe'));assert(files.find(f=>f.name==='tasks/run.yml').content.includes('expand_argument_vars: false'));});
@@ -118,3 +118,22 @@ test('ZIP interoperates with Python zipfile, preserves UTF-8 and CRCs, and is de
   try{const archive=path.join(directory,'output.zip');fs.writeFileSync(archive,bytes);const result=cp.spawnSync('python3',['-S','-c','import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); assert z.testzip() is None; assert z.read("alis-ansible/README.md").decode()=="Zażółć gęślą jaźń\\n"; assert len(z.namelist())==2',archive],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);}finally{fs.rmSync(directory,{recursive:true,force:true});}
 });
 test('ZIP rejects duplicate and escaping paths',()=>{for(const name of ['../evil','/absolute','files/../../evil'])assert.throws(()=>A.zip([{name,content:''}]));assert.throws(()=>A.zip([{name:'a',content:''},{name:'a',content:''}]));assert.equal(A.crc32(new TextEncoder().encode('123456789')),0xcbf43926);});
+
+for(const profile of profiles)for(const create of [false,true])test('upgrade export preserves configuration and uses upgrade reports: '+profile.id+' create_home='+create,async()=>{
+  const p=W.exampleProject(profile.id,'upgrade');p.jobs[0].context={os:'linux',topology:'single',tde:'none'};p.automation={host:'lab.example.com'};
+  if(create)Object.assign(p.jobs[0].values,{create_oracle_home:'YES',folder:'/home/oracle/media',patch:'RECOMMENDED:23.26.3',download:'YES'});
+  const before=C.clone(p),files=await A.bundle(p,profile),get=n=>files.find(f=>f.name===n)?.content,plan=JSON.parse(get('files/plan.json'));
+  assert.equal(plan.operation,'upgrade');assert.equal(plan.target_version,'23');assert.equal(plan.create_oracle_home,create);
+  assert.equal(get('files/autoupgrade.cfg'),C.renderConfig(p));assert.deepEqual(p,before);
+  assert.deepEqual([...get('upgrade.yml').matchAll(/import_playbook: (\w+)\.yml/g)].map(m=>m[1]),['prepare','analyze','deploy','verify']);
+  for(const name of ['patch.yml','download.yml','create_home.yml'])assert(!get(name));
+  assert(get('test-local.yml').includes('import_playbook: upgrade.yml'));assert(get('test-local.yml').includes('          - upgrade'));
+  assert(get('README.md').includes('ansible-playbook upgrade.yml -e alis_approve_deploy=true'));assert(!get('README.md').includes('__ALIS_OPERATION__'));
+  assert(get('tasks/run.yml').includes("trim == 'YES'"));assert(get('tasks/run.yml').includes('deploy-gate'));
+  const commands=[...get('alis-runbook.md').matchAll(/java -jar[^\n]+-mode (analyze|deploy)/g)].slice(0,2).map(m=>m[0]);
+  assert.equal(commands.length,2);assert(commands.every(c=>!c.includes('-patch')));
+});
+for(const field of ['pdbs','exclude_pdbs','target_cdb','source_dblink','log_dir'])test('whole-database upgrade excludes '+field,()=>{
+  const p=W.exampleProject(profiles[1].id,'upgrade');p.jobs[0].context={os:'linux',topology:'single'};p.automation={host:'lab.example.com'};p.jobs[0].values[field]='CUSTOM';
+  assert(!A.assess(p,profiles[1]).ready);
+});

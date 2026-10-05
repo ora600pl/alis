@@ -13,11 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / 'templates/ansible'
 
 
-class RunnerTests(unittest.TestCase):
+class RunnerHarness(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="alis Oracle's lab ")
         self.root = Path(self.temp.name).resolve()
-        subprocess.run([sys.executable, '-S', str(TEMPLATES / 'tests/simulator.py'), 'setup', str(self.root)], check=True, capture_output=True)
+        subprocess.run([sys.executable, '-S', str(TEMPLATES / 'tests/simulator.py'), 'setup', str(self.root), getattr(self, 'setup_fault', 'none'), getattr(self, 'operation', 'patch')], check=True, capture_output=True)
         self.run = self.root / 'run'
         shutil.copytree(self.root / 'files', self.run)
         self.plan = self.run / 'plan.json'
@@ -27,7 +27,7 @@ class RunnerTests(unittest.TestCase):
 
     def invoke(self, action, *extra):
         checksum = hashlib.sha256(self.plan.read_bytes()).hexdigest()
-        result = subprocess.run([sys.executable, '-S', str(self.run / 'runner.py'), action, '--plan', str(self.plan), '--plan-sha', checksum, '--simulation', *extra], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-S', str(self.run / 'runner.py'), action, '--plan', str(self.plan), '--plan-sha', checksum, '--simulation', '--approve-deploy', *extra], capture_output=True, text=True)
         self.assertTrue(result.stdout, result.stderr)
         return result.returncode, json.loads(result.stdout)
 
@@ -58,6 +58,20 @@ class RunnerTests(unittest.TestCase):
         path = self.root / 'commands.jsonl'
         commands = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
         return [command[command.index('-mode') + 1] for command in commands]
+
+class RunnerTests(RunnerHarness):
+    def test_approval_is_required_and_not_persisted(self):
+        self.software()
+        self.assertTrue(self.success('deploy-gate')['approval_required'])
+        self.failure('deploy', 'maintenance-window approval', '--no-approve-deploy')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home'])
+        self.fault('interrupted')
+        self.failure('deploy', 'rc=7')
+        self.failure('deploy', 'maintenance-window approval', '--resume', '--no-approve-deploy')
+        self.success('deploy', '--resume')
+        self.assertFalse(self.success('deploy-gate')['approval_required'])
+        self.success('deploy', '--no-approve-deploy')
+        self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy', 'deploy'])
 
     def test_complete_cycle_and_completed_deploy_are_idempotent(self):
         self.success('prepare')
@@ -537,6 +551,75 @@ class RunnerTests(unittest.TestCase):
         for action in ('prepare', 'analyze', 'download', 'create_home', 'deploy', 'verify'):
             self.assertFalse(self.success(action, '--cycle')['changed'])
         self.assertEqual(self.modes(), ['analyze', 'download', 'create_home', 'deploy'])
+
+
+
+class UpgradeRunnerTests(RunnerHarness):
+    operation = 'upgrade'
+
+    def test_integrated_home_upgrade_and_read_only_repeat(self):
+        self.success('prepare')
+        self.assertFalse((self.root / 'target/bin/oracle').exists())
+        self.success('analyze')
+        self.assertFalse((self.root / 'target/bin/oracle').exists())
+        self.failure('deploy', 'maintenance-window approval', '--no-approve-deploy')
+        self.assertEqual(self.modes(), ['analyze'])
+        self.success('deploy')
+        self.success('verify')
+        self.success('deploy', '--no-approve-deploy')
+        self.assertEqual(self.modes(), ['analyze', 'deploy'])
+        commands = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
+        self.assertTrue(all('-patch' not in command for command in commands))
+        evidence = json.loads((self.run / 'results/verification.json').read_text())
+        self.assertEqual(evidence['target_version'], '23')
+        self.assertEqual(len(evidence['components']), 9)
+        report = json.loads((self.run / 'results/deploy-status.json').read_text())
+        self.assertIn('modules', report['jobs'][0])
+        self.assertNotIn('stages', report['jobs'][0])
+
+    def test_existing_target_home(self):
+        (self.root / 'target/bin/oracle').write_text('SIMULATION ONLY')
+        self.change_plan(create_oracle_home=False, download=False, folder='')
+        self.success('prepare')
+        self.success('analyze')
+        self.success('deploy')
+        self.assertEqual(self.modes(), ['analyze', 'deploy'])
+
+    def test_upgrade_failure_gates(self):
+        for fault, message, action in [('checks', 'database checks', 'analyze'), ('same-release', 'Use patching', 'prepare'), ('components', 'database components', 'deploy'), ('component-version', 'target release', 'deploy'), ('target-version', 'binaries do not match', 'deploy'), ('missing-upgrade', 'DBUPGRADE', 'deploy'), ('missing-seed', 'Component queries', 'deploy')]:
+            with self.subTest(fault=fault):
+                self.tearDown()
+                self.setUp()
+                if action == 'deploy':
+                    self.success('analyze')
+                self.fault(fault)
+                self.failure(action, message)
+                self.assertNotIn('download', self.modes())
+                self.assertNotIn('create_home', self.modes())
+
+    def test_no_patch_only_modes_or_conversion(self):
+        self.failure('download', 'not part of the exported upgrade')
+        self.fault('noncdb')
+        self.failure('prepare', 'Non-CDB conversion')
+
+    def test_verification_failure_never_repeats_upgrade(self):
+        self.success('analyze')
+        self.fault('components')
+        self.failure('deploy', 'database components')
+        self.assertFalse(self.success('deploy-gate')['approval_required'])
+        self.fault('none')
+        self.success('deploy', '--no-approve-deploy')
+        self.assertEqual(self.modes(), ['analyze', 'deploy'])
+
+    def test_resume_upgrade_requires_fresh_approval(self):
+        self.success('analyze')
+        self.fault('interrupted')
+        self.failure('deploy', 'rc=7')
+        self.failure('deploy', 'maintenance-window approval', '--resume', '--no-approve-deploy')
+        self.success('deploy', '--resume')
+        commands = [json.loads(line) for line in (self.root / 'commands.jsonl').read_text().splitlines()]
+        self.assertIn('-resume', commands[-1])
+        self.assertNotIn('-patch', commands[-1])
 
 
 if __name__ == '__main__':

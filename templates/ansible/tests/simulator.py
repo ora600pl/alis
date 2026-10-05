@@ -10,7 +10,7 @@ import time
 import zipfile
 
 
-def setup(root, failure='none'):
+def setup(root, failure='none', operation='patch'):
     root = Path(root).resolve()
     root.mkdir(parents=True, exist_ok=True)
     source, target = root / 'source', root / 'target'
@@ -28,6 +28,15 @@ def setup(root, failure='none'):
     (root / 'wallet/cwallet.sso').write_text('SIMULATION ONLY')
     config = 'global.global_log_dir=' + str(root / 'logs') + '\npatch1.sid=SIMDB\npatch1.source_home=' + str(source) + '\npatch1.target_home=' + str(target) + '\n'
     plan = {'format': 2, 'simulation': True, 'profile': '26.6.260925', 'java': str(root / 'java'), 'jar': str(jar), 'jar_sha256': hashlib.sha256(jar.read_bytes()).hexdigest(), 'config_sha256': hashlib.sha256(config.encode()).hexdigest(), 'home_config_sha256': hashlib.sha256(config.encode()).hexdigest(), 'create_home_prechecks': True, 'sid': 'SIMDB', 'source_home': str(source), 'target_home': str(target), 'log_dir': str(root / 'logs'), 'folder': str(root / 'media'), 'download': True, 'keystore': str(root / 'wallet'), 'resume_cli': True}
+    plan['operation'] = operation
+    if operation == 'upgrade':
+        plan.update(target_version='23', create_oracle_home=failure != 'existing-home', download=failure != 'existing-home')
+        config = config.replace('patch1.', 'upg1.') + 'upg1.target_version=26\nupg1.create_oracle_home=' + ('YES' if plan['create_oracle_home'] else 'NO') + '\n'
+        plan.update(config_sha256=hashlib.sha256(config.encode()).hexdigest(), home_config_sha256=hashlib.sha256(config.encode()).hexdigest())
+        (source / 'jdk/bin').mkdir(parents=True)
+        (source / 'jdk/bin/java').write_text(script)
+        if failure == 'existing-home':
+            (target / 'bin/oracle').write_text('SIMULATION ONLY')
     (root / 'files/autoupgrade.cfg').write_text(config)
     (root / 'files/autoupgrade.home.cfg').write_text(config)
     (root / 'files/plan.json').write_text(json.dumps(plan, indent=2) + '\n')
@@ -47,6 +56,9 @@ def fake_java(root, fault):
     config = Path(sys.argv[sys.argv.index('-config') + 1])
     plan = json.loads((config.parent / 'plan.json').read_text())
     mode = sys.argv[sys.argv.index('-mode') + 1]
+    if ('-patch' in sys.argv) != (plan.get('operation', 'patch') == 'patch'):
+        print('Wrong AutoUpgrade operation flag')
+        return 9
     with open(root / 'commands.jsonl', 'a') as stream:
         stream.write(json.dumps(sys.argv[1:]) + '\n')
     if fault == 'interrupted' and mode == 'deploy' and not (root / 'interrupted-once').exists():
@@ -68,6 +80,14 @@ def fake_java(root, fault):
         print('Simulated download completed. No job status/progress is written by download mode.')
         return 0
     stages = ['PRECHECKS'] if mode == 'analyze' else ['PRECHECKS', 'DB_PATCHING', 'POSTCHECKS', 'COMPLETED']
+    upgrade = plan.get('operation') == 'upgrade'
+    if upgrade and mode == 'deploy':
+        stages = ['GRP', 'PREUPGRADE', 'PRECHECKS', 'PREFIXUPS', 'DRAIN', 'DBUPGRADE', 'POSTCHECKS', 'POSTFIXUPS', 'POSTUPGRADE']
+        if plan.get('create_oracle_home'):
+            stages.insert(0, 'CREATEORACLEHOME')
+            (root / 'target/bin/oracle').write_text('SIMULATION ONLY')
+        if fault == 'missing-upgrade':
+            stages.remove('DBUPGRADE')
     if mode == 'create_home':
         stages = ['PREACTIONS', 'EXTRACT', 'DBTOOLS', 'INSTALL', 'OH_PATCHING', 'OPTIONS', 'ROOTSH', 'POSTACTIONS']
         if plan.get('create_home_prechecks'):
@@ -86,6 +106,8 @@ def fake_java(root, fault):
     if mode == 'create_home' and fault == 'missing-root':
         job['stages'] = [stage for stage in job['stages'] if stage['stageName'] != 'ROOTSH']
     progress = {'sid': sid, 'jobNo': 100, 'totalPercentCompleted': 80 if fault == 'incomplete' and mode == 'deploy' else 100, 'stages': [{'stage': stage, 'percentCompleted': '100'} for stage in stages]}
+    if upgrade:
+        job['modules'] = [dict(moduleName=stage.pop('stageName'), **stage) for stage in job.pop('stages')]
     for stage in progress['stages']:
         if stage['stage'] in ('PRECHECKS', 'POSTCHECKS'):
             checks = [{'checkname': 'SIMULATED_CHECK', 'severity': 'ERROR', 'fixup_available': 'YES' if fault == 'fixable-error' else 'NO'}] if fault in ('checks', 'fixable-error') else []
@@ -101,7 +123,7 @@ def fake_java(root, fault):
                 if fault == 'stale-checklist':
                     import os
                     os.utime(report_path, (1, 1))
-    directory = root / 'logs/cfgtoollogs/patch/auto/status'
+    directory = root / ('logs/status' if upgrade else 'logs/cfgtoollogs/patch/auto/status')
     directory.mkdir(parents=True, exist_ok=True)
     for name, value in [('status', job), ('progress', progress)]:
         path = directory / (name + '.json')
@@ -114,7 +136,8 @@ def fake_java(root, fault):
         for percentage in (20, 60):
             progress['totalPercentCompleted'] = percentage
             for stage in progress['stages']:
-                stage['percentCompleted'] = str(percentage) if stage['stage'] == 'DB_PATCHING' else '100' if stage['stage'] == 'PRECHECKS' else '0'
+                changing = 'DBUPGRADE' if upgrade else 'DB_PATCHING'
+                stage['percentCompleted'] = str(percentage) if stage['stage'] == changing else '100' if stages.index(stage['stage']) < stages.index(changing) else '0'
                 stage['lastUpdateTime'] = '2026-10-05 12:00:00' if stage['stage'] in ('PRECHECKS', 'DB_PATCHING') else ''
             (directory / 'progress.json').write_text(json.dumps({'totalJobs': 1, 'jobs': [progress]}))
             time.sleep(4)
@@ -129,13 +152,19 @@ def fake_java(root, fault):
 
 
 def fake_sqlplus(root, fault):
+    upgrade = json.loads((root / 'files/plan.json').read_text()).get('operation') == 'upgrade'
+    if '-V' in sys.argv:
+        print('SQL*Plus: Release ' + ('19' if fault == 'target-version' else '23' if upgrade else '19') + '.0.0.0.0')
+        return 0
     if Path(__file__).resolve().parents[1].name != (root / 'active-home').read_text():
         print('The running instance uses another Oracle home.')
         return 4
     sql = sys.stdin.read()
     with (root / 'sql.jsonl').open('a') as stream:
         stream.write(json.dumps(sql) + '\n')
-    if 'ALIS_PATCH' in sql:
+    if 'ALIS_VERSION' in sql:
+        print('ALIS_VERSION|' + ('23.0.0.0.0' if fault == 'same-release' else '19.0.0.0.0'))
+    elif 'ALIS_PATCH' in sql or 'ALIS_COMPONENT' in sql:
         # Real CDB views can omit PDB$SEED. Local queries must switch sessions.
         names = {'CDB$ROOT': 1, 'PDB$SEED': 2, 'LABPDB': 3}
         containers = [names[name.replace('""', '"')] for name in re.findall(r'alter session set container = "((?:[^"]|"")*)";', sql)]
@@ -150,6 +179,11 @@ def fake_sqlplus(root, fault):
             if fault == 'missing-pdb' and container == 3:
                 continue
             if fault == 'missing-seed' and container == 2:
+                continue
+            if 'ALIS_COMPONENT' in sql:
+                print('ALIS_COMPONENT_CONTEXT|' + str(context))
+                for component in ('CATALOG', 'CATPROC', 'JAVAVM'):
+                    print('ALIS_COMPONENT|{}|{}|{}.0.0.0.0|{}'.format(container, component, '19' if fault == 'component-version' and container == 2 else '23', 'INVALID' if fault == 'components' else 'VALID'))
                 continue
             print('ALIS_PATCH|{}|37960098|APPLY|{}'.format(container, 'WITH ERRORS' if fault == 'sqlpatch' else 'SUCCESS'))
     else:
@@ -169,7 +203,7 @@ def fake_sqlplus(root, fault):
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == 'setup':
-        setup(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 'none')
+        setup(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else 'none', sys.argv[4] if len(sys.argv) > 4 else 'patch')
         return 0
     root = tool_root()
     fault = (root / 'fault.txt').read_text().strip()
@@ -179,7 +213,8 @@ def main():
     if name == 'sqlplus':
         return fake_sqlplus(root, fault)
     if name == 'opatch':
-        print('37960098;Database Release Update : ' + ('19.29' if fault == 'home-inventory' else '19.28') + '.0.0.250715 (37960098)')
+        upgrade = json.loads((root / 'files/plan.json').read_text()).get('operation') == 'upgrade'
+        print('37960098;Database Release Update : ' + ('23.26.3' if upgrade else '19.29' if fault == 'home-inventory' else '19.28') + '.0.0.250715 (37960098)')
         return 0
     raise RuntimeError('Simulator must run through setup or a fake tool.')
 

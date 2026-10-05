@@ -27,13 +27,13 @@
   loop: [plan.json, autoupgrade.cfg, autoupgrade.home.cfg, runner.py]
   register: alis_staged
 
-- name: Keep configuration and runner unchanged for this patch cycle
+- name: Keep configuration and runner unchanged for this cycle
   ansible.builtin.assert:
     quiet: true
     that:
       - not item.stat.islnk
       - item.stat.checksum == (lookup('ansible.builtin.file', (alis_bundle_dir | default(playbook_dir)) + '/files/' + item.item, rstrip=false) | hash('sha256'))
-    fail_msg: This directory contains a different bundle. Use a new working directory and log directory for a new patch cycle; resume with the original bundle.
+    fail_msg: This directory contains a different bundle. Use a new working directory and log directory for a new cycle; resume with the original bundle.
   loop: "{{ alis_staged.results }}"
   loop_control:
     label: "{{ item.item }}"

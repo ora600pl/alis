@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run actual Ansible against an exported simulator bundle, never a database."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from test_ansible_approval import check_approval
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,17 +22,33 @@ def main():
             executable = str(sibling)
     if not executable:
         raise SystemExit('Install ansible-core 2.21 in a temporary venv and put its bin directory on PATH.')
-    with tempfile.TemporaryDirectory(prefix='alis-ansible-integration-') as temp:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--operation', choices=['patch', 'upgrade'])
+    parser.add_argument('--faults', help='Comma-separated scenarios for targeted local verification')
+    args = parser.parse_args()
+    for operation in ([args.operation] if args.operation else ['patch', 'upgrade']):
+        check_bundle(executable, operation, args.faults.split(',') if args.faults else [])
+
+
+def check_bundle(executable, operation, selected_faults):
+    with tempfile.TemporaryDirectory(prefix='alis-ansible-'+operation+'-') as temp:
         bundle = Path(temp) / 'bundle'
-        subprocess.run(['node', str(ROOT / 'tools/export_ansible_fixture.cjs'), str(bundle)], check=True, capture_output=True)
+        subprocess.run(['node', str(ROOT / 'tools/export_ansible_fixture.cjs'), str(bundle), operation], check=True, capture_output=True)
         env = dict(os.environ, ANSIBLE_HOME=str(Path(temp) / 'ansible-home'), ANSIBLE_LOCAL_TEMP=str(Path(temp) / 'local'), ANSIBLE_REMOTE_TEMP=str(Path(temp) / 'remote'), PYTHONDONTWRITEBYTECODE='1')
         outputs = []
-        for name in ['patch', 'prepare', 'analyze', 'download', 'create_home', 'deploy', 'verify', 'test-local']:
+        if operation == 'patch' and not selected_faults:
+            check_approval(executable, bundle, env, temp)
+        names = [operation, 'prepare', 'analyze', 'deploy', 'verify', 'test-local'] + (['download', 'create_home'] if operation == 'patch' else [])
+        for name in names:
             result = subprocess.run([executable, name + '.yml', '--syntax-check'], cwd=bundle, env=env, capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stdout + result.stderr)
         faults = [('none', 'deploy', 0), ('warnings', 'deploy', 0), ('progress', 'deploy', 0), ('checks', 'analyze', 2), ('download', 'download', 2), ('checksum', 'download', 2), ('root', 'create_home', 2), ('status', 'deploy', 2), ('sqlpatch', 'deploy', 2), ('interrupted', 'deploy', 2)]
-        phases = ['analyze', 'download', 'create_home', 'deploy']
+        if operation == 'upgrade':
+            faults = [('none', 'deploy', 0), ('existing-home', 'deploy', 0), ('progress', 'deploy', 0), ('checks', 'analyze', 2), ('components', 'deploy', 2), ('interrupted', 'deploy', 2)]
+        if selected_faults:
+            faults = [fault for fault in faults if fault[0] in selected_faults]
+        phases = ['analyze', 'download', 'create_home', 'deploy'] if operation == 'patch' else ['analyze', 'deploy']
         for fault, action, expected in faults:
             if (bundle / 'artifacts').exists():
                 shutil.rmtree(bundle / 'artifacts')
@@ -44,7 +62,7 @@ def main():
                 raise RuntimeError('Generic async polling replaced the ALIS progress output.')
             if fault == 'progress':
                 for percentage in (20, 60):
-                    if not re.search(r'\[ALIS\] localhost \| deploy \| job 100 \| DB_PATCHING ' + str(percentage) + r'%', result.stdout):
+                    if not re.search(r'\[ALIS\] localhost \| deploy \| job 100 \| ' + ('DB_PATCHING ' if operation == 'patch' else 'DBUPGRADE ') + str(percentage) + r'%', result.stdout):
                         raise RuntimeError('Native stage transition was not displayed: ' + result.stdout)
             evidence = list((bundle / 'artifacts/localhost').glob('*'))
             if not evidence:
@@ -67,9 +85,9 @@ def main():
             if fault == 'interrupted':
                 sandbox = Path(status['jobs'][0]['sourceHome']).parent
                 variables = Path(temp) / 'resume-simulation.json'
-                variables.write_text(json.dumps({'alis_hosts': 'localhost', 'ansible_connection': 'local', 'ansible_python_interpreter': sys.executable, 'alis_python': sys.executable, 'alis_simulation': True, 'alis_become': False, 'alis_oracle_user': 'simulation', 'alis_bundle_dir': str(sandbox), 'alis_work_dir': str(sandbox / 'run'), 'alis_timeout': 120, 'alis_poll_interval': 1}))
+                variables.write_text(json.dumps({'alis_hosts': 'localhost', 'ansible_connection': 'local', 'ansible_python_interpreter': sys.executable, 'alis_python': sys.executable, 'alis_simulation': True, 'alis_approve_deploy': True, 'alis_become': False, 'alis_oracle_user': 'simulation', 'alis_bundle_dir': str(sandbox), 'alis_work_dir': str(sandbox / 'run'), 'alis_timeout': 120, 'alis_poll_interval': 1}))
                 for resume in (True, False):
-                    command = [executable, 'patch.yml', '-i', 'localhost,', '-e', '@' + str(variables)]
+                    command = [executable, operation + '.yml', '-i', 'localhost,', '-e', '@' + str(variables)]
                     if resume:
                         command += ['-e', 'alis_resume=true']
                     result = subprocess.run(command, cwd=bundle, env=env, capture_output=True, text=True)
@@ -81,7 +99,7 @@ def main():
                         raise RuntimeError('Global resume/repeat reran completed phases: ' + repr(modes))
                 outputs[-1].update(global_resume=True, repeated_cycle_skipped=True)
                 print('Verified global resume and repeated complete cycle', flush=True)
-        print(json.dumps({'syntax_checks': 8, 'ansible_runs': outputs}, indent=2))
+        print(json.dumps({'operation': operation, 'syntax_checks': len(names), 'ansible_runs': outputs}, indent=2))
 
 
 if __name__ == '__main__':

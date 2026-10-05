@@ -1,10 +1,47 @@
 - name: Require a normal run for AutoUpgrade tasks
   ansible.builtin.assert:
     that: not ansible_check_mode
-    fail_msg: --check cannot simulate Oracle patching. Use test-local.yml for a simulation or analyze.yml for real database readiness checks.
+    fail_msg: --check cannot simulate an Oracle operation. Use test-local.yml for a simulation or analyze.yml for real database readiness checks.
 
 - name: Stage this bundle
   ansible.builtin.include_tasks: prepare.yml
+
+- name: Confirm the maintenance window before deployment
+  when: alis_action == 'deploy'
+  block:
+    - name: Check whether deployment still requires approval
+      ansible.builtin.command:
+        argv:
+          - "{{ alis_python }}"
+          - "{{ alis_work_dir }}/runner.py"
+          - deploy-gate
+          - --plan
+          - "{{ alis_work_dir }}/plan.json"
+          - --plan-sha
+          - "{{ lookup('ansible.builtin.file', (alis_bundle_dir | default(playbook_dir)) + '/files/plan.json', rstrip=false) | hash('sha256') }}"
+          - "{{ '--simulation' if (alis_simulation | default(false) | bool) else '--real' }}"
+        expand_argument_vars: false
+      register: alis_deploy_gate
+      changed_when: false
+
+    - name: Approve database changes in the maintenance window
+      ansible.builtin.pause:
+        prompt: >-
+          Deploy will change the database on {{ inventory_hostname }}.
+          Review the collected analyze reports, backups and maintenance window.
+          Type YES to proceed; any other answer stops before deployment
+      register: alis_deploy_answer
+      when:
+        - (alis_deploy_gate.stdout | from_json).approval_required
+        - not (alis_approve_deploy | default(false) | bool)
+
+    - name: Require explicit deployment approval
+      ansible.builtin.assert:
+        that: >-
+          not (alis_deploy_gate.stdout | from_json).approval_required or
+          (alis_approve_deploy | default(false) | bool) or
+          (alis_deploy_answer.user_input | default('') | trim == 'YES')
+        fail_msg: Deployment was not approved. Prepared software and analysis are retained. Run deploy.yml when ready, or explicitly approve an unattended run with -e alis_approve_deploy=true.
 
 - name: Execute and collect evidence
   block:
@@ -21,6 +58,7 @@
           - "{{ '--simulation' if (alis_simulation | default(false) | bool) else '--real' }}"
           - "{{ '--resume' if (alis_resume | default(false) | bool) else '--no-resume' }}"
           - "{{ '--cycle' if (alis_cycle | default(false) | bool) else '--single' }}"
+          - "{{ '--approve-deploy' if (alis_action == 'deploy') else '--no-approve-deploy' }}"
         expand_argument_vars: false
       async: "{{ alis_timeout | int }}"
       poll: 0

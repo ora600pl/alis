@@ -91,7 +91,7 @@ def snapshot(work_dir, action, plan_sha):
         started = operation['started']
         if type(started) not in (int, float) or started <= 0 or started > time.time() + 1:
             return fallback
-        base = Path(plan['log_dir']) / 'cfgtoollogs/patch/auto/status'
+        base = Path(plan['log_dir']) / ('status' if plan.get('operation') == 'upgrade' else 'cfgtoollogs/patch/auto/status')
         status, status_time = read_json(base / 'status.json', started)
         progress, progress_time = read_json(base / 'progress.json', started)
         sid = 'create_home_1' if action == 'create_home' else plan['sid']
@@ -116,6 +116,9 @@ def snapshot(work_dir, action, plan_sha):
                           any(c.get('runningChecks') or c.get('completedChecks') for c in stage.get('containers', [])))
             parts.append('{}{} {}%'.format('' if active else 'waiting for ', name, percent(stage['percentCompleted'])))
             for container in stage.get('containers', [])[:3]:
+                if name == 'DBUPGRADE':
+                    parts.append('{} {}%'.format(token(container['container']), percent(container['percentCompleted'])))
+                    continue
                 completed, total = container['completedChecks'], container['totalChecks']
                 if type(completed) is not int or type(total) is not int or not 0 <= completed <= total:
                     raise ValueError('Invalid check counts')

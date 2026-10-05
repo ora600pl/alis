@@ -48,6 +48,21 @@ class ProgressTests(unittest.TestCase):
     def snapshot(self, action='deploy', sha=None):
         return progress.snapshot(str(self.root), action, self.sha if sha is None else sha)
 
+    def test_upgrade_progress_uses_native_path_and_container_percentages(self):
+        self.plan['operation'] = 'upgrade'
+        self.plan_path.write_text(json.dumps(self.plan))
+        self.sha = hashlib.sha256(self.plan_path.read_bytes()).hexdigest()
+        self.state['plan_sha256'] = self.sha
+        self.state_path.write_text(json.dumps(self.state))
+        self.base = self.root / 'logs/status'
+        self.base.mkdir(parents=True)
+        stage = self.report['jobs'][0]['stages'][1]
+        stage.update(stage='DBUPGRADE', containers=[{'container': 'PDB$SEED', 'percentCompleted': 30}])
+        self.write_reports()
+        summary = self.snapshot()['summary']
+        self.assertIn('DBUPGRADE 42%', summary)
+        self.assertIn('PDB$SEED 30%', summary)
+
     def test_current_stage_precedes_future_stages_and_details_are_not_disclosed(self):
         before = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
         result = self.snapshot()

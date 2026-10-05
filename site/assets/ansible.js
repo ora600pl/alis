@@ -5,7 +5,7 @@
   const W = typeof module !== 'undefined' ? require('./workflows.js') : root.AlisWorkflows;
   const T = typeof module !== 'undefined' ? require('./ansible-templates.js') : root.AlisAnsibleTemplates;
   const DEFAULTS = {host:'',sshUser:'oracle',oracleUser:'oracle',workDir:'/home/oracle/alis-patch',python:'python3',timeout:'32400',poll:'15'};
-  const settings = project => ({...DEFAULTS,...project.automation});
+  const settings = project => ({...DEFAULTS,workDir:project.operation==='upgrade'?'/home/oracle/alis-upgrade':DEFAULTS.workDir,...project.automation});
   const absolute = value => typeof value === 'string' && /^\/(?!$)[^\0\r\n{}]+$/.test(value) && !value.split('/').includes('..');
   const executable = value => typeof value === 'string' && (absolute(value) || /^[A-Za-z0-9_.-]+$/.test(value));
   function patchExport(project) {
@@ -48,26 +48,33 @@
   function assess(project, profile) {
     const adapted=patchExport(project);project=adapted.project;
     const reasons = [...adapted.reasons,...C.validate(project,profile).filter(i=>i.level==='error').map(i=>i.text)];
-    const job=project.jobs[0],ctx=job?.context||{},e=project.execution||{},a=settings(project);
+    const job=project.jobs[0],ctx=job?.context||{},e=project.execution||{},a=settings(project),upgrade=project.operation==='upgrade';
     const get=n=>job?C.effective(project,job,n,profile).value:null;
-    if(project.operation!=='patch'||project.jobs.length!==1||job?.scenario!=='patch')reasons.push('Ansible export supports one existing database patch job. Choose Patch existing databases.');
-    if(!['analyze','deploy','fixups'].includes(project.mode))reasons.push('Select a database patch mode. The bundle runs the complete analyze, download, create_home and deploy cycle.');
+    if(project.jobs.length!==1||!(project.operation==='patch'&&job?.scenario==='patch'||upgrade&&job?.scenario==='upgrade'))reasons.push('Ansible supports one local database: Patch existing databases or Upgrade a database. Migration, conversion and software-only workflows need separate automation.');
+    if(!['analyze','deploy','fixups'].includes(project.mode))reasons.push('Select analyze, fixups or deploy. The bundle starts with analysis and runs a complete deployment cycle.');
     if(!['linux','ol9'].includes(ctx.os)||ctx.topology!=='single')reasons.push('In Environment, select Linux (or Oracle Linux 9) and Single instance.');
     if(get('platform')&&!/^LINUX\./i.test(get('platform')))reasons.push('Use Linux media or leave platform omitted for the execution host.');
     if(ctx.role&&ctx.role!=='')reasons.push('Data Guard and standby roles need a separately coordinated Ansible workflow.');
     if(ctx.location==='remote'||e.shell==='powershell')reasons.push('This export requires a local source on a Linux execution host.');
-    if(get('rac_rolling')!=='DISABLED'||(get('patch_node')&&!/^localhost$/i.test(get('patch_node')))||get('home_settings.cluster_nodes'))reasons.push('Cluster patch settings are outside this single-instance export.');
-    if(get('method')!=='OUTOFPLACE')reasons.push('This export requires OUTOFPLACE patching.');
+    if(get('rac_rolling')!=='DISABLED'||(!upgrade&&get('patch_node')&&!/^localhost$/i.test(get('patch_node')))||get('home_settings.cluster_nodes'))reasons.push('Cluster settings are outside this single-instance export.');
+    if(!upgrade&&get('method')!=='OUTOFPLACE')reasons.push('This export requires OUTOFPLACE patching.');
+    if(upgrade) {
+      if(/^YES$/i.test(get('target_is_remote')||''))reasons.push('Remote target upgrades require a separate workflow.');
+      if(!['19','21','23','26'].includes(String(get('target_version'))))reasons.push('Set an explicit upgrade target_version: 19, 21, 23 or 26.');
+      for(const name of ['target_cdb','target_pdb_name','source_dblink','pdbs','exclude_pdbs','catctl_options','log_dir'])if(get(name))reasons.push(name+' requires a separate migration, selected-PDB or custom execution workflow.');
+      if(Object.keys(job?.pdb||{}).length)reasons.push('Per-PDB migration settings are outside the whole-database upgrade export.');
+      if(/^NO$/i.test(get('run_utlrp')||''))reasons.push('Upgrade verification requires recompilation; omit run_utlrp or use YES.');
+    }
     if(ctx.tde&&!['none','auto'].includes(ctx.tde))reasons.push('Prepare a usable auto-login TDE wallet before exporting; password prompts and external-keystore workflows need separate automation.');
     if(e.autologin==='NO')reasons.push('Unattended execution requires a prepared AutoUpgrade auto-login keystore.');
     if(e.settingsPath)reasons.push('Custom internal settings files are outside this export.');
     if(String(get('drain_timeout')).toUpperCase()==='WAIT')reasons.push('Use a numeric drain timeout for this unattended workflow.');
     if(get('start_time')&&!/^NOW$/i.test(get('start_time')))reasons.push('Use start_time=NOW (or omit it); schedule the playbook from your automation system.');
     for(const name of ['source_home','target_home'])if(!absolute(get(name)))reasons.push(name+' must be an absolute Linux path for Ansible.');
-    if(get('source_home')===get('target_home'))reasons.push('Source and target Oracle homes must differ for out-of-place patching.');
-    if(!absolute(project.globals.global_log_dir||project.globals.autoupg_log_dir))reasons.push('Set an explicit absolute global log directory dedicated to this patch cycle.');
-    if(!absolute(get('folder')||get('download_folder')))reasons.push('Set an absolute patch media directory.');
-    if(/^YES$/i.test(get('download'))&&!absolute(project.globals.keystore))reasons.push('Online patching requires an absolute keystore path.');
+    if(get('source_home')===get('target_home'))reasons.push('Source and target Oracle homes must differ.');
+    if(!absolute(project.globals.global_log_dir||project.globals.autoupg_log_dir))reasons.push('Set an explicit absolute global log directory dedicated to this cycle.');
+    if((!upgrade||/^YES$/i.test(get('create_oracle_home')))&&!absolute(get('folder')||get('download_folder')))reasons.push('Set an absolute software media directory.');
+    if(/^YES$/i.test(get('download'))&&(!upgrade||/^YES$/i.test(get('create_oracle_home')))&&!absolute(project.globals.keystore))reasons.push('Online downloads require an absolute keystore path.');
     if(!/^[A-Za-z0-9_.:-]+$/.test(a.host))reasons.push('Enter the execution host DNS name or IP address.');
     for(const name of ['sshUser','oracleUser'])if(!/^[a-z_][a-z0-9_-]*\$?$/i.test(a[name]))reasons.push('Enter a valid '+(name==='sshUser'?'SSH user':'Oracle software owner')+'.');
     if(!absolute(a.workDir))reasons.push('Use an absolute, dedicated Ansible working directory.');
@@ -81,31 +88,37 @@
     return Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
   }
   const yaml = value => '!unsafe '+JSON.stringify(String(value));
-  function playbook(action) {
-    return '---\n- name: ALIS '+action+'\n  hosts: "{{ alis_hosts | default(\'oracle_patch\') }}"\n  gather_facts: false\n  serial: 1\n  any_errors_fatal: true\n  become: "{{ alis_become | bool }}"\n  become_user: "{{ alis_oracle_user }}"\n  vars:\n    alis_action: '+action+'\n  tasks:\n    - name: Run the '+action+' workflow\n      ansible.builtin.include_tasks: tasks/run.yml\n';
+  function playbook(action,operation) {
+    return '---\n- name: ALIS '+action+'\n  hosts: "{{ alis_hosts | default(\'oracle_'+operation+'\') }}"\n  gather_facts: false\n  serial: 1\n  any_errors_fatal: true\n  become: "{{ alis_become | bool }}"\n  become_user: "{{ alis_oracle_user }}"\n  vars:\n    alis_action: '+action+'\n  tasks:\n    - name: Run the '+action+' workflow\n      ansible.builtin.include_tasks: tasks/run.yml\n';
   }
   async function bundle(project,profile) {
     const state=assess(project,profile);
     if(!state.ready)throw new Error(state.reasons.join('\n'));
     const originalConfig=C.renderConfig(project);project=state.project;
-    const a=settings(project),e=project.execution||{},job=project.jobs[0],get=n=>C.effective(project,job,n,profile).value;
+    const a=settings(project),e=project.execution||{},job=project.jobs[0],get=n=>C.effective(project,job,n,profile).value,operation=project.operation;
     const config=C.renderConfig(project),parts=C.patchParts(get('patch')||'',profile);
     const pinnedRu=parts.find(p=>['RU','RECOMMENDED'].includes(p.type)&&p.version)?.version||'';
     const runProject=C.clone(project);runProject.mode='deploy';runProject.fileName='autoupgrade.cfg';
     const homeArtifact=W.runbook(runProject,profile).artifacts.find(f=>f.type==='home preparation');
     const homeConfig=homeArtifact?.content||config;
     const plan={format:2,simulation:false,profile:profile.id,jar_sha256:profile.jarSha256,jar:absolute(project.jarPath)?project.jarPath:a.workDir.replace(/\/$/,'')+'/'+project.jarPath,java:e.javaPath||'java',config_sha256:await sha256(config),home_config_sha256:await sha256(homeConfig),home_config_separate:Boolean(homeArtifact),create_home_prechecks:Boolean(profile.behavior?.createHomePrechecks),sid:get('sid'),source_home:get('source_home'),target_home:get('target_home'),log_dir:project.globals.global_log_dir||project.globals.autoupg_log_dir,folder:get('folder')||get('download_folder'),download:/^YES$/i.test(get('download')),keystore:project.globals.keystore||'',resume_cli:Boolean(profile.behavior?.resumeCli),debug:e.debug==='YES',restore_on_fail:e.restoreOnFail==='YES',pinned_ru:pinnedRu};
-    const files=Object.entries(T).map(([name,content])=>({name,content}));
+    plan.operation=operation;
+    if(operation==='upgrade')Object.assign(plan,{target_version:String(get('target_version')==='26'?'23':get('target_version')),create_oracle_home:/^YES$/i.test(get('create_oracle_home')),folder:get('folder')||get('download_folder')||'',download:/^YES$/i.test(get('create_oracle_home'))&&/^YES$/i.test(get('download'))});
+    const files=Object.entries(T).map(([name,content])=>({name,content:content.replaceAll('__ALIS_OPERATION__',operation)}));
+    if(operation==='upgrade') {
+      const test=files.find(f=>f.name==='test-local.yml');
+      test.content=test.content.replace('import_playbook: patch.yml','import_playbook: upgrade.yml');
+    }
     if(state.adjustments.length) {
       files.push({name:'original-autoupgrade.cfg',content:originalConfig});
       files.push({name:'config-adjustments.md',content:'# Imported configuration adapted for patching\n\nOnly files/autoupgrade.cfg and files/autoupgrade.home.cfg are executed. original-autoupgrade.cfg preserves the configuration before conversion and is never staged on the server.\n\n'+state.adjustments.map(text=>'- '+text).join('\n')+'\n'});
     }
-    files.push({name:'inventory.yml',content:'---\nall:\n  children:\n    oracle_patch:\n      hosts:\n        oracle_db:\n          ansible_host: '+yaml(a.host)+'\n          ansible_user: '+yaml(a.sshUser)+'\n'});
+    files.push({name:'inventory.yml',content:'---\nall:\n  children:\n    oracle_'+operation+':\n      hosts:\n        oracle_db:\n          ansible_host: '+yaml(a.host)+'\n          ansible_user: '+yaml(a.sshUser)+'\n'});
     files.push({name:'host_vars/oracle_db.yml',content:'---\nalis_oracle_user: '+yaml(a.oracleUser)+'\nalis_become: '+String(a.sshUser!==a.oracleUser)+'\nalis_work_dir: '+yaml(a.workDir)+'\nalis_python: '+yaml(a.python)+'\nansible_python_interpreter: '+yaml(a.python)+'\nalis_timeout: '+a.timeout+'\nalis_poll_interval: '+a.poll+'\nalis_resume: false\n'});
     files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'files/autoupgrade.home.cfg',content:homeConfig},{name:'alis-runbook.md',content:W.markdown(runProject,profile)+(state.adjustments.length?'\n## Imported configuration conversion\n\nThe executed patch configurations use the adaptations documented in config-adjustments.md. The unchanged input is retained as original-autoupgrade.cfg; it is not executed.\n':'')});
-    const actions=['prepare','analyze','download','create_home','deploy','verify'];
-    for(const action of actions)files.push({name:action+'.yml',content:playbook(action)});
-    files.push({name:'patch.yml',content:'---\n# Complete patch cycle; each stage must succeed before the next starts.\n'+actions.map(action=>'- ansible.builtin.import_playbook: '+action+'.yml\n  vars:\n    alis_cycle: true').join('\n')+'\n'});
+    const actions=operation==='upgrade'?['prepare','analyze','deploy','verify']:['prepare','analyze','download','create_home','deploy','verify'];
+    for(const action of actions)files.push({name:action+'.yml',content:playbook(action,operation)});
+    files.push({name:operation+'.yml',content:'---\n# Complete '+operation+' cycle; each stage must succeed before the next starts.\n'+actions.map(action=>'- ansible.builtin.import_playbook: '+action+'.yml\n  vars:\n    alis_cycle: true').join('\n')+'\n'});
     return files.sort((x,y)=>x.name.localeCompare(y.name));
   }
   function crc32(bytes) {

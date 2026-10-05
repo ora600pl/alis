@@ -7,6 +7,7 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
     alis_python: "{{ ansible_playbook_python }}"
     alis_simulation: true
+    alis_approve_deploy: true
     alis_timeout: 120
     alis_poll_interval: 1
   tasks:
@@ -28,6 +29,7 @@
           - setup
           - "{{ alis_sandbox.path }}"
           - "{{ alis_test_failure | default('none') }}"
+          - __ALIS_OPERATION__
       changed_when: true
 
     - name: Use the independent sandbox bundle
@@ -42,6 +44,7 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
     alis_python: "{{ ansible_playbook_python }}"
     alis_simulation: true
+    alis_approve_deploy: true
     alis_become: false
     alis_oracle_user: simulation
     alis_timeout: 120

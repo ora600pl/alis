@@ -81,11 +81,17 @@ def check_status(status, progress, plan, mode, checklists):
     require(str(job.get('deployMode', '')).lower() == mode, 'AutoUpgrade status belongs to another mode.')
     require(type(job.get('jobNo')) is int and job['jobNo'] > 0 and job['jobNo'] == ongoing.get('jobNo'), 'Status and progress refer to different jobs.')
     require(job.get('sourceHome') == plan['source_home'] and job.get('targetHome') == plan['target_home'], 'AutoUpgrade reported different Oracle homes.')
-    stages = job.get('stages', [])
+    upgrade = plan.get('operation', 'patch') == 'upgrade'
+    stage_key, name_key = ('modules', 'moduleName') if upgrade else ('stages', 'stageName')
+    stages = job.get(stage_key, [])
     require(isinstance(stages, list) and stages and all(isinstance(stage, dict) for stage in stages), 'AutoUpgrade did not report any completed stages.')
     require(all(type(stage.get('status')) is int and stage['status'] == 0 and stage.get('errors') == [] for stage in stages), 'AutoUpgrade reported an unsuccessful stage. Inspect status.json and the operation log.')
-    names = {stage.get('stageName') for stage in stages}
+    names = {stage.get(name_key) for stage in stages}
     required = {'PRECHECKS'} if mode == 'analyze' else {'DB_PATCHING', 'POSTCHECKS'}
+    if upgrade and mode == 'deploy':
+        required = {'DBUPGRADE', 'POSTCHECKS', 'POSTFIXUPS', 'POSTUPGRADE'}
+        if plan.get('create_oracle_home'):
+            required.add('CREATEORACLEHOME')
     if mode == 'create_home':
         required = {'INSTALL', 'OH_PATCHING', 'OPTIONS', 'ROOTSH'}
         if plan.get('create_home_prechecks'):
@@ -161,6 +167,11 @@ class Runner:
         self.results.mkdir(mode=0o700, exist_ok=True)
         self.plan = json.loads(Path(args.plan).read_text(encoding='utf-8'))
         require(self.plan.get('format') == 2, 'Export a new bundle for the explicit four-phase workflow. Keep an existing cycle with its original runner.')
+        require(self.plan.get('operation', 'patch') in ('patch', 'upgrade'), 'Unknown AutoUpgrade operation.')
+        self.upgrade = self.plan.get('operation', 'patch') == 'upgrade'
+        self.phases = ('analyze', 'deploy') if self.upgrade else PHASES
+        if self.upgrade:
+            require(self.plan.get('target_version') in ('19', '21', '23'), 'Unsupported upgrade target release.')
         self.plan_hash = digest(args.plan)
         require(args.plan_sha == self.plan_hash, 'The staged plan differs from this bundle.')
         require(bool(self.plan.get('simulation')) == args.simulation, 'Simulation requires both a simulation plan and --simulation. Real plans never use the simulator.')
@@ -233,12 +244,33 @@ class Runner:
         if self.state['operations'].get('deploy', {}).get('native_complete'):
             return self.verify()
         self.validate_jar()
-        self.database(self.plan['source_home'], 'database-before')
+        database = self.database(self.plan['source_home'], 'database-before')
+        if self.upgrade:
+            containers = database.get('ALIS_CONTAINER', [])
+            patch_sql(containers)  # All containers must be available for whole-database verification.
+            version = self.command([self.plan['source_home'] + '/bin/sqlplus', '-L', '-S', '/ as sysdba'], 'source-version', PATCH_SQL + "select 'ALIS_VERSION|' || version from v$instance;\nexit\n", self.plan['source_home'])
+            versions = [line.strip().split('|')[1] for line in version.splitlines() if line.strip().startswith('ALIS_VERSION|')]
+            require(len(versions) == 1 and re.fullmatch(r'\d+(?:\.\d+)+', versions[0]), 'Unknown source database release.')
+            require(tuple(map(int, versions[0].split('.')[:2])) >= (12, 2), 'This upgrade exporter supports source release 12.2 or later.')
+            require(int(versions[0].split('.')[0]) < int(self.plan['target_version']), 'Use patching for an RU within the same database release.')
+            require(not (containers[0][0] == '0' and int(self.plan['target_version']) > 19), 'Non-CDB conversion to a PDB requires a separate workflow.')
+            identity = {'version': versions[0], 'containers': [row[:2] for row in containers]}
+            require(self.state.get('source_identity', identity) == identity, 'Source database release or container selection changed during this cycle.')
+            self.state['source_identity'] = identity
+            save(self.state_path, self.state)
+            if not self.plan.get('create_oracle_home'):
+                self.state['prepared_home'] = self.home(previous=self.state.get('prepared_home'))
+                save(self.state_path, self.state)
+                return {'changed': False, 'message': 'JAR, source database and existing target home checked.'}
+            require((Path(self.plan['source_home']) / 'jdk/bin/java').is_file(), 'Integrated home creation requires the source-home jdk/bin/java used by AutoUpgrade.')
         folder = self.plan.get('folder')
         require(folder and Path(folder).is_dir(), 'Prepare the patch media directory on the execution host first.')
         if self.plan.get('download'):
             wallet = Path(self.plan['keystore'])
             require((wallet / 'cwallet.sso').is_file(), 'Online patching needs a previously prepared AutoUpgrade auto-login wallet (cwallet.sso). Run -load_password interactively on the host first.')
+        elif self.upgrade:
+            self.state['prepared_media'] = self.media(previous=self.state.get('prepared_media'))
+            save(self.state_path, self.state)
         return {'changed': False, 'message': 'JAR, database identity, topology and media prerequisites checked.'}
 
     def report(self, path, started, ended=None):
@@ -247,7 +279,7 @@ class Runner:
         return json.loads(path.read_text(encoding='utf-8'))
 
     def status(self, mode, started, ended=None):
-        base = Path(self.plan['log_dir']) / 'cfgtoollogs/patch/auto/status'
+        base = Path(self.plan['log_dir']) / ('status' if self.upgrade else 'cfgtoollogs/patch/auto/status')
         reports = {}
         for name in ('status', 'progress'):
             path = base / (name + '.json')
@@ -259,9 +291,10 @@ class Runner:
         directory = Path(job['logDirectory'])
         require(directory.parent.parent.resolve() == Path(self.plan['log_dir']).resolve() and directory.parent.name.upper() == sid.upper() and directory.name == str(job.get('jobNo')), 'AutoUpgrade check reports belong to another job directory.')
         checklists = {}
-        for stage in job.get('stages', []):
-            if isinstance(stage, dict) and stage.get('stageName') in ('PRECHECKS', 'POSTCHECKS'):
-                name = stage['stageName']
+        stage_key, name_key = ('modules', 'moduleName') if self.upgrade else ('stages', 'stageName')
+        for stage in job.get(stage_key, []):
+            if isinstance(stage, dict) and stage.get(name_key) in ('PRECHECKS', 'POSTCHECKS'):
+                name = stage[name_key]
                 path = directory / name.lower() / (job['dbName'].lower() + '_checklist.json')
                 checklists[name] = self.report(path, started, ended)
                 save(self.results / (mode + '-' + name.lower() + '-checklist.json'), checklists[name])
@@ -365,7 +398,10 @@ class Runner:
         text = self.command([home + '/OPatch/opatch', 'lspatches'], 'inventory', home=home)
         patches = {match[1]: match[2] for match in re.finditer(r'^\s*(\d+);(.*)$', text, re.M)}
         sql_ids = {patch for patch, description in patches.items() if re.search(r'Database Release Update|OJVM RELEASE UPDATE', description, re.I)}
-        require(sql_ids, 'Could not identify a Database RU or OJVM in target-home inventory.')
+        require(sql_ids or self.upgrade, 'Could not identify a Database RU or OJVM in target-home inventory.')
+        if self.upgrade:
+            version = self.command([home + '/bin/sqlplus', '-V'], 'target-version', home=home)
+            require(re.search(r'Release\s+' + re.escape(self.plan['target_version']) + r'\.', version), 'Target Oracle binaries do not match the requested upgrade release.')
         pinned_ru = self.plan.get('pinned_ru')
         if pinned_ru:
             require(any('Database Release Update' in description and re.search(r'(?<![\d.])' + re.escape(pinned_ru) + r'(?:\.\d+)*(?![\d.])', description) for description in patches.values()), 'Target inventory does not contain the pinned RU ' + pinned_ru)
@@ -380,6 +416,7 @@ class Runner:
         return evidence
 
     def execute(self, mode):
+        require(mode in self.phases, 'This mode is not part of the exported upgrade workflow. Use upgrade.yml.')
         operations = self.state['operations']
         previous = operations.get(mode)
         resume = self.args.resume and (bool(previous) or not self.args.cycle)
@@ -396,14 +433,16 @@ class Runner:
             return {'changed': False, 'message': 'AutoUpgrade had completed; final verification now passed without another deployment.'}
         require(not previous or resume, 'The previous operation was interrupted or failed. Inspect its logs and use -e alis_resume=true with the original bundle.')
         require(not resume or previous, 'There is no interrupted operation to resume.')
-        for prerequisite in PHASES[:PHASES.index(mode)]:
+        for prerequisite in self.phases[:self.phases.index(mode)]:
             require(operations.get(prerequisite, {}).get('verified'), 'Run ' + prerequisite + '.yml successfully before ' + mode + '.yml.')
+        if mode == 'deploy':
+            require(self.args.approve_deploy, 'Deployment requires maintenance-window approval. Use deploy.yml and confirm YES, or explicitly set alis_approve_deploy=true.')
         self.validate_jar()
         if not resume:
             self.prepare()
-        if mode in ('create_home', 'deploy'):
+        if not self.upgrade and mode in ('create_home', 'deploy'):
             self.media(previous=operations['download']['evidence'])
-        if mode == 'deploy':
+        if not self.upgrade and mode == 'deploy':
             self.home(previous=operations['create_home']['home'])
         if mode == 'create_home' and previous and previous.get('native_complete'):
             operations[mode].update(home=self.home(), verified=True, status='succeeded', ended=time.time())
@@ -411,7 +450,10 @@ class Runner:
             save(self.state_path, self.state)
             return {'changed': False, 'message': 'Home creation had completed; verification now passed without another installation.'}
         config = self.home_config if mode == 'create_home' and self.plan.get('home_config_separate') else self.config
-        flags = [self.plan['java'], '-jar', self.plan['jar'], '-patch', '-config', str(config), '-mode', mode, '-noconsole']
+        flags = [self.plan['java'], '-jar', self.plan['jar']]
+        if not self.upgrade:
+            flags += ['-patch']
+        flags += ['-config', str(config), '-mode', mode, '-noconsole']
         if self.plan.get('settings'):
             require(digest(self.plan['settings']) == self.plan.get('settings_sha256'), 'Expert settings require a pinned settings_sha256 in plan.json.')
             flags += ['-settings', self.plan['settings']]
@@ -448,6 +490,13 @@ class Runner:
             save(self.state_path, self.state)
             raise
 
+    def deploy_gate(self):
+        previous = self.state['operations'].get('deploy', {})
+        if not previous.get('native_complete'):
+            for prerequisite in self.phases[:-1]:
+                require(self.state['operations'].get(prerequisite, {}).get('verified'), 'Run ' + prerequisite + '.yml successfully before deploy.yml.')
+        return {'changed': False, 'approval_required': not previous.get('native_complete', False)}
+
     def verify(self, require_deploy=True):
         if require_deploy:
             require(self.state['operations'].get('deploy', {}).get('native_complete'), 'No successfully completed AutoUpgrade deployment exists for this patch cycle.')
@@ -456,9 +505,21 @@ class Runner:
         database = self.database(home, 'database-after')
         _, sql_ids = self.inventory()
         containers = database.get('ALIS_CONTAINER', [])
+        components = None
+        if self.upgrade:
+            require(self.state.get('source_identity', {}).get('containers') == [row[:2] for row in containers], 'Upgrade verification did not find every original container.')
+            sql = patch_sql(containers).replace(PATCH_QUERY, "select 'ALIS_COMPONENT_CONTEXT|' || sys_context('USERENV', 'CON_ID') from dual;\nselect 'ALIS_COMPONENT|' || sys_context('USERENV', 'CON_ID') || '|' || comp_id || '|' || version || '|' || status from dba_registry;\n")
+            registry = self.command([home + '/bin/sqlplus', '-L', '-S', '/ as sysdba'], 'components', sql, home)
+            components = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_COMPONENT|')]
+            contexts = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_COMPONENT_CONTEXT|')]
+            require(contexts == [[row[0]] for row in containers], 'Component queries did not reach every expected container.')
+            require(components and all(len(row) == 4 and row[0] in {c[0] for c in containers} and row[3] in ('VALID', 'OPTION OFF') for row in components), 'Upgrade left invalid, upgrading or incomplete database components.')
+            required_components = {(c[0], component) for c in containers for component in ('CATALOG', 'CATPROC')}
+            upgraded = {(row[0], row[1]) for row in components if row[3] == 'VALID' and re.fullmatch(re.escape(self.plan['target_version']) + r'(?:\.\d+)+', row[2])}
+            require(required_components <= upgraded, 'Core database components have not reached the target release in every container.')
         registry = self.command([home + '/bin/sqlplus', '-L', '-S', '/ as sysdba'], 'sqlpatch', patch_sql(containers), home)
         rows = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_PATCH|')]
-        require(rows and all(len(row) == 4 for row in rows), 'SQL patch registry was empty or malformed.')
+        require((rows or not sql_ids) and all(len(row) == 4 for row in rows), 'SQL patch registry was empty or malformed.')
         contexts = [line.strip().split('|')[1:] for line in registry.splitlines() if line.strip().startswith('ALIS_PATCH_CONTEXT|')]
         require(contexts == [[row[0]] for row in containers], 'SQL patch queries did not reach every expected container.')
         require(all(row[0] in {container[0] for container in containers} for row in rows), 'SQL patch rows belong to an unexpected container.')
@@ -467,6 +528,8 @@ class Runner:
         required = {(container[0], patch) for container in containers for patch in sql_ids}
         require(required <= applied, 'Target-home SQL patches are missing or unsuccessful in one or more containers: ' + repr(sorted(required - applied)))
         evidence = {'changed': False, 'message': 'Active home, database state, binary inventory and SQL patch registry verified.', 'containers': containers, 'sql_patch_ids': sorted(sql_ids), 'simulation': self.simulation}
+        if self.upgrade:
+            evidence.update(target_version=self.plan['target_version'], components=components)
         save(self.results / 'verification.json', evidence)
         if require_deploy:
             previous = self.state['operations']['deploy']
@@ -504,7 +567,7 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['prepare', *PHASES, 'verify', 'recheck-analyze', 'recheck-create-home'])
+    parser.add_argument('action', choices=['prepare', *PHASES, 'verify', 'deploy-gate', 'recheck-analyze', 'recheck-create-home'])
     parser.add_argument('--plan', required=True)
     parser.add_argument('--plan-sha', required=True)
     parser.add_argument('--resume', action='store_true')
@@ -513,6 +576,8 @@ def main():
     parser.add_argument('--single', action='store_false', dest='cycle')
     parser.add_argument('--simulation', action='store_true')
     parser.add_argument('--real', action='store_false', dest='simulation')
+    parser.add_argument('--approve-deploy', action='store_true')
+    parser.add_argument('--no-approve-deploy', action='store_false', dest='approve_deploy')
     args = parser.parse_args()
     runner = None
     try:
