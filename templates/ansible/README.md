@@ -39,6 +39,8 @@ ansible-playbook remote.yml
 
 Files remain in `controller/`; a completed local stage can be verified offline. Transfer preserves existing files and refuses mismatches. For a different local Java use `-e alis_controller_java=/path/to/java`. If Oracle serves a different JAR than the selected profile, supply that exact build in `controller/autoupgrade.jar` or export with the matching reviewed profile. For **server downloads**, prepare the pinned JAR and auto-login wallet on the server yourself.
 
+On macOS, the JAR downloader uses `/usr/bin/curl` with certificate verification and the system trust store. Other controllers use Python's CA trust. An explicit `SSL_CERT_FILE` or `SSL_CERT_DIR` selects Python's configured trust on any platform. For a private CA, set `SSL_CERT_FILE=/absolute/path/trusted-ca.pem` before running Ansible. Never disable TLS verification. The downloaded JAR must also match the profile's SHA-256.
+
 ## Results and resume
 
 Read `artifacts/oracle_db/` and the native logs. `[ALIS]` updates report remote progress. Completion checks native reports, target inventory and SQL patch registries in every container, including `PDB$SEED`; upgrade also checks container/component preservation. Java exit code zero alone is insufficient. Complete application/service checks separately.

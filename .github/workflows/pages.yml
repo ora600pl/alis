@@ -30,6 +30,7 @@ jobs:
         run: |
           python3 -m pip install 'ansible-core>=2.21,<2.22'
           python3 tools/test_ansible_controller.py
+          python3 tools/test_controller_tls.py
       - run: git diff --exit-code -- site/index.html site/assets/profiles.js site/assets/ansible-templates.js site/offline.html
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name != 'pull_request'

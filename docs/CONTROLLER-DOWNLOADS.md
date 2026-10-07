@@ -14,6 +14,10 @@ The three playbooks can also be run separately. Local files remain in `controlle
 
 The Oracle download URL serves the current JAR. ALIS verifies its SHA-256 against the selected reviewed profile before running it. If they differ, supply that exact JAR in `controller/autoupgrade.jar` or export with the matching reviewed profile. Media can contain a newer downloaded AutoUpgrade tool; it does not replace the pinned executable.
 
+On macOS, ALIS downloads the JAR with Apple's `/usr/bin/curl`, using native certificate trust, HTTPS-only redirects and no user curlrc. This handles python.org installations whose OpenSSL CA bundle is missing. Other controllers use Python HTTPS with certificate verification. Explicit `SSL_CERT_FILE` or `SSL_CERT_DIR` settings preserve the operator's Python trust configuration on every platform. Certificate errors stop the download; there is no unverified fallback. A private CA can be supplied through `SSL_CERT_FILE=/absolute/path/trusted-ca.pem`. These settings affect the initial JAR downloader; AutoUpgrade's Java runtime uses its own trust configuration.
+
+For an older bundle affected by the macOS Python certificate error, download the selected JAR through verified HTTPS into `controller/autoupgrade.jar`, then rerun the original playbook. Its existing SHA-256 check still runs before Java. Alternatively, complete the python.org certificate installation using its `Install Certificates.command`. See [Python's macOS installation instructions](https://docs.python.org/3/using/mac.html) and [curl certificate verification](https://curl.se/docs/sslcerts.html).
+
 `patches_info.json` contains an absolute media path. Transfer creates a copy with the server's `patchFolder`; the original local metadata remains unchanged. Other companion files, including `aru-bug-map.json`, and nested files are retained. The transfer receipt is bound to the exact plan; the remote runner rechecks the transferred files before software use.
 
 ## Target release regression

@@ -6,14 +6,44 @@ import json
 import os
 from pathlib import Path
 import re
+import ssl
 import stat
 import subprocess
 import sys
 import urllib.request
+import urllib.error
 
 from runner import digest, require, save, verify_download
 
 JAR_URL = 'https://download.oracle.com/otn-pub/otn_software/autoupgrade.jar'
+
+
+def download_file(url, destination):
+    require(url.startswith('https://'), 'AutoUpgrade downloads require HTTPS.')
+    # python.org macOS installations can have no OpenSSL CA bundle. Use Apple's
+    # system curl and native trust unless the operator explicitly chose OpenSSL CAs.
+    if sys.platform == 'darwin' and not any(name in os.environ for name in ('SSL_CERT_FILE', 'SSL_CERT_DIR')):
+        try:
+            subprocess.run(['/usr/bin/curl', '--disable', '--fail', '--silent', '--show-error',
+                            '--location', '--proto', '=https', '--proto-redir', '=https',
+                            '--connect-timeout', '20', '--max-time', '120',
+                            '--output', str(destination), url], check=True, timeout=135)
+        except subprocess.CalledProcessError as error:
+            if error.returncode == 60:
+                raise RuntimeError('HTTPS certificate verification failed in macOS system curl. Configure a trusted CA bundle with SSL_CERT_FILE, then retry. TLS verification remains enabled.') from error
+            raise
+        return
+    try:
+        with urllib.request.urlopen(url, timeout=120) as source, destination.open('wb') as dest:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                dest.write(chunk)
+    except urllib.error.URLError as error:
+        if isinstance(error.reason, ssl.SSLCertVerificationError):
+            raise RuntimeError('Python could not verify the HTTPS certificate. Configure its CA trust store or set SSL_CERT_FILE to a trusted CA bundle, then retry. TLS verification remains enabled.') from error
+        raise
 
 
 def private_tree(root):
@@ -118,12 +148,7 @@ def prepare(root, plan, plan_sha, java, jar_url=JAR_URL):
         print('Downloading AutoUpgrade from Oracle ...', flush=True)
         temporary = root / 'autoupgrade.jar.part'
         try:
-            with urllib.request.urlopen(jar_url, timeout=120) as source, temporary.open('wb') as dest:
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    dest.write(chunk)
+            download_file(jar_url, temporary)
             require(digest(temporary) == plan['jar_sha256'], 'Oracle currently serves a different JAR than profile ' + plan['profile'] + '. Select the matching reviewed ALIS profile, or place the exact profile JAR in ' + str(jar) + '. No wallet or database action was started.')
             os.chmod(temporary, 0o600); os.replace(temporary, jar)
         finally:
@@ -176,6 +201,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (RuntimeError, OSError, ValueError, subprocess.CalledProcessError) as error:
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         print('Local staging failed: ' + str(error), file=sys.stderr)
         sys.exit(1)

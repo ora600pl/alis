@@ -1,10 +1,15 @@
 """Controller downloads and transfers are software-only and bound to target media."""
 from pathlib import Path
 import importlib.util
+import io
 import json
+import os
+import ssl
+import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 FILES = Path(__file__).resolve().parents[1] / 'templates/ansible/files'
@@ -15,6 +20,8 @@ from runner import digest, save, verify_download
 
 class ControllerTests(unittest.TestCase):
     def setUp(self):
+        transport = patch('controller.sys.platform', 'linux')
+        transport.start();self.addCleanup(transport.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="alis controller's ")
         self.root = Path(self.temp.name)
         for area in ('media', 'wallet', 'logs'):
@@ -152,3 +159,69 @@ class ControllerTests(unittest.TestCase):
             self.assertTrue(controller.prepare(self.root,self.plan,'plan','java'))
         self.assertIn('-load_password',commands[1]);self.assertIn('download',commands[2]);self.assertEqual(len(commands),3)
         self.assertTrue((self.root/'manifest.json').is_file())
+
+    def test_failed_macos_transfer_removes_partial_jar_before_native_execution(self):
+        (self.root/'autoupgrade.jar').unlink()
+        for area in ('media','wallet'):
+            for path in (self.root/area).iterdir():path.unlink()
+        self.plan['profile']='26.6.260925'
+        def curl(argv, **kwargs):
+            self.assertEqual(argv[0], '/usr/bin/curl')
+            Path(argv[argv.index('--output')+1]).write_bytes(b'PARTIAL JAR')
+            raise subprocess.CalledProcessError(18,argv)
+        with patch('controller.sys.platform','darwin'), patch.dict(os.environ,{},clear=True), patch('controller.sys.stdin.isatty',return_value=True), patch('builtins.input',return_value='YES'), patch('controller.subprocess.run',side_effect=curl) as run:
+            with self.assertRaises(subprocess.CalledProcessError):controller.prepare(self.root,self.plan,'plan','java')
+        self.assertEqual(run.call_count,1)
+        self.assertFalse((self.root/'autoupgrade.jar').exists())
+        self.assertFalse((self.root/'autoupgrade.jar.part').exists())
+
+    def test_macos_download_is_hash_checked_before_any_java_execution(self):
+        (self.root/'autoupgrade.jar').unlink()
+        for area in ('media','wallet'):
+            for path in (self.root/area).iterdir():path.unlink()
+        self.plan['profile']='26.6.260925'
+        def curl(argv, **kwargs):
+            self.assertEqual(argv[0], '/usr/bin/curl')
+            Path(argv[argv.index('--output')+1]).write_bytes(b'WRONG BUILD')
+        with patch('controller.sys.platform','darwin'), patch.dict(os.environ,{},clear=True), patch('controller.sys.stdin.isatty',return_value=True), patch('builtins.input',return_value='YES'), patch('controller.subprocess.run',side_effect=curl) as run:
+            with self.assertRaisesRegex(RuntimeError,'different JAR'):controller.prepare(self.root,self.plan,'plan','java')
+        self.assertEqual(run.call_count,1)
+        self.assertFalse((self.root/'autoupgrade.jar').exists())
+
+
+class DownloadTransportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory(prefix='alis-tls-');self.addCleanup(self.temp.cleanup)
+        self.dest=Path(self.temp.name)/'download.part'
+
+    def test_macos_uses_system_trust_and_restricts_redirect_protocol(self):
+        def curl(argv,**kwargs):
+            self.assertEqual(argv[:2],['/usr/bin/curl','--disable'])
+            self.assertNotIn('--insecure',argv);self.assertNotIn('-k',argv)
+            self.assertEqual(argv[argv.index('--proto')+1],'=https')
+            self.assertEqual(argv[argv.index('--proto-redir')+1],'=https')
+            self.assertTrue(kwargs['check'])
+            Path(argv[argv.index('--output')+1]).write_bytes(b'JAR')
+        with patch('controller.sys.platform','darwin'), patch.dict(os.environ,{},clear=True), patch('controller.subprocess.run',side_effect=curl), patch('controller.urllib.request.urlopen',side_effect=AssertionError('Do not depend on an empty Python CA store')):
+            controller.download_file(controller.JAR_URL,self.dest)
+        self.assertEqual(self.dest.read_bytes(),b'JAR')
+
+    def test_explicit_python_ca_configuration_is_preserved_on_macos(self):
+        for name in ('SSL_CERT_FILE','SSL_CERT_DIR'):
+            with self.subTest(name=name), patch('controller.sys.platform','darwin'), patch.dict(os.environ,{name:'/explicit/trust'},clear=True), patch('controller.urllib.request.urlopen',return_value=io.BytesIO(b'JAR')) as request, patch('controller.subprocess.run',side_effect=AssertionError('Do not replace explicitly selected trust')):
+                controller.download_file(controller.JAR_URL,self.dest)
+                request.assert_called_once_with(controller.JAR_URL,timeout=120)
+                self.assertEqual(os.environ[name],'/explicit/trust')
+
+    def test_curl_certificate_failure_stops_without_another_transport(self):
+        with patch('controller.sys.platform','darwin'), patch.dict(os.environ,{},clear=True), patch('controller.subprocess.run',side_effect=subprocess.CalledProcessError(60,['/usr/bin/curl'])), patch('controller.urllib.request.urlopen',side_effect=AssertionError('No certificate-failure fallback')):
+            with self.assertRaisesRegex(RuntimeError,'SSL_CERT_FILE'):controller.download_file(controller.JAR_URL,self.dest)
+
+    def test_python_certificate_failure_has_actionable_error(self):
+        error=urllib.error.URLError(ssl.SSLCertVerificationError(1,'unable to get local issuer certificate'))
+        with patch('controller.sys.platform','linux'), patch('controller.urllib.request.urlopen',side_effect=error), patch('controller.subprocess.run',side_effect=AssertionError('No certificate-failure fallback')):
+            with self.assertRaisesRegex(RuntimeError,'TLS verification remains enabled'):controller.download_file(controller.JAR_URL,self.dest)
+
+    def test_http_input_is_rejected_before_any_connection(self):
+        with patch('controller.urllib.request.urlopen',side_effect=AssertionError('No HTTP')), patch('controller.subprocess.run',side_effect=AssertionError('No HTTP')):
+            with self.assertRaisesRegex(RuntimeError,'require HTTPS'):controller.download_file('http://example.invalid/file',self.dest)
