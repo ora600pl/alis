@@ -26,19 +26,35 @@ jobs:
       - run: node --check site/assets/core.js
       - run: node --check site/assets/workflows.js
       - run: node --check site/assets/ansible.js
-      - name: Verify generated Ansible playbooks with a local simulator
+      - name: Verify controller staging and transfer with fake media
         run: |
           python3 -m pip install 'ansible-core>=2.21,<2.22'
           python3 tools/test_ansible_controller.py
-          python3 tools/test_ansible.py
       - run: git diff --exit-code -- site/index.html site/assets/profiles.js site/assets/ansible-templates.js site/offline.html
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name != 'pull_request'
         with:
           path: site
+  ansible:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        operation: [patch, upgrade]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install 'ansible-core>=2.21,<2.22'
+      - name: Verify all playbook scenarios and approvals
+        run: python3 tools/test_ansible.py --operation ${{ matrix.operation }}
   deploy:
     if: github.event_name != 'pull_request'
-    needs: build
+    needs: [build, ansible]
     permissions:
       pages: write
       id-token: write
