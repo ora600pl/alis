@@ -34,3 +34,19 @@ test('server upgrade download also drops source identity without modifying the s
   assert(download.content.includes('target_version=26'));assert(!download.content.includes('source_home'));assert(!download.content.includes('.sid='));assert(r.artifacts[0].content.includes('source_home='));
   assert(r.steps.find(s=>s.title==='Download and inspect the media').code.includes('.download.cfg'));
 });
+test('manual workstation setup resolves absolute paths before opening the wallet',()=>{
+  const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),cp=require('node:child_process');
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"alis manual's "));
+  try{
+    const profile=require('../profiles/26.6.260925.json'),p=W.exampleProject(profile.id,'upgrade');
+    p.fileName="my upgrade's.cfg";p.execution={downloadHost:'controller'};p.jobs[0].context={mediaPlatform:'LINUX.X64'};
+    Object.assign(p.jobs[0].values,{download:'YES',create_oracle_home:'YES',folder:'/server/media'});
+    const r=W.runbook(p,profile),file=r.artifacts.find(a=>a.type==='download configuration');
+    fs.writeFileSync(path.join(root,file.name),file.content);
+    cp.execFileSync('sh',['-c',r.steps[0].code.split('\n').find(line=>line.startsWith('python3 -c '))],{cwd:root});
+    const content=fs.readFileSync(path.join(root,file.name),'utf8'),stage=fs.realpathSync(root)+'/alis-staging';
+    for(const [key,area] of [['global.global_log_dir','logs'],['global.keystore','wallet'],['upg1.folder','media']])assert(content.includes(key+'='+stage+'/'+area));
+    assert(!content.includes('=./alis-staging/'));
+    assert(r.steps[1].code.includes('-load_password'));
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
