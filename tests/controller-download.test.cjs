@@ -13,7 +13,8 @@ for(const id of ['26.5.260807','26.6.260925'])for(const operation of ['patch','u
     for(const filename of ['autoupgrade.cfg','autoupgrade.home.cfg','autoupgrade.deploy.cfg'])assert(!get('files/'+filename).includes('.download=YES'));
     assert.deepEqual([...get(operation+'.yml').matchAll(/import_playbook: (\w+)\.yml/g)].map(m=>m[1]),['local','transfer','remote']);
     assert.match(get('test-local.yml'),/import_playbook: remote.yml/);
-    assert.match(get('transfer.yml'),/Type YES to transfer/);assert.match(get('tasks/run.yml'),/Type YES to proceed/);
+    assert.match(get('transfer.yml'),/Type YES to transfer/);assert(!get('transfer.yml').includes('SHARED'));
+    assert.match(get('local.yml'),/local MOS credentials/);assert.match(get('tasks/run.yml'),/Type YES to proceed/);
     const runbook=W.runbook(p,profile),commands=runbook.steps.map(s=>s.code).join('\n');
     assert(commands.indexOf('-mode download')<commands.indexOf('-mode analyze'));assert(commands.indexOf('-mode create_home')<commands.indexOf('-mode deploy'));
     const download=runbook.artifacts.find(f=>f.type==='download configuration');
@@ -48,5 +49,8 @@ test('manual workstation setup resolves absolute paths before opening the wallet
     for(const [key,area] of [['global.global_log_dir','logs'],['global.keystore','wallet'],['upg1.folder','media']])assert(content.includes(key+'='+stage+'/'+area));
     assert(!content.includes('=./alis-staging/'));
     assert(r.steps[1].code.includes('-load_password'));
+    assert.equal(r.steps[2].kind,'console');assert.equal(r.steps[2].code,'add -user YOUR_MOS_USER\nlist\nsave\nexit');
+    assert.match(r.steps[2].text,/auto-login prompt choose YES/);
+    assert.match(r.steps.find(step=>step.title==='Connect VPN and approve transfer').text,/MOS wallet stays on this workstation/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 });

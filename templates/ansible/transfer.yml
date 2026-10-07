@@ -15,7 +15,7 @@
       ansible.builtin.pause:
         prompt: >-
           Local downloads are verified. Connect VPN now if necessary.
-          Transfer AutoUpgrade, the SHARED AutoUpgrade wallet and all media to the inventory host?
+          Transfer AutoUpgrade and all media to the inventory host? The MOS wallet stays on this workstation.
           This does not approve database deployment. Type YES to transfer; any other answer stops
       register: alis_transfer_answer
       when: not (alis_approve_transfer | default(false) | bool)
@@ -47,7 +47,7 @@
     - name: Stage immutable cycle files before transferring software
       ansible.builtin.include_tasks: tasks/prepare.yml
 
-    - name: Transfer all media, metadata, JAR and AutoUpgrade wallet files
+    - name: Transfer the JAR, all media and companion metadata
       ansible.builtin.include_tasks: tasks/transfer-file.yml
       loop: "{{ hostvars['localhost'].alis_transfer_manifest.files }}"
       loop_control:

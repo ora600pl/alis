@@ -72,7 +72,8 @@ def check_directory(root, plan_sha):
 
 def collect(root):
     entries = {}
-    for area in ('media', 'wallet'):
+    # MOS credentials belong to the download workstation, never the transfer set.
+    for area in ('media',):
         for path in sorted((root / area).rglob('*')):
             require(not path.is_symlink() and (path.is_file() or path.is_dir()), 'Unsupported staging entry: ' + str(path))
             if path.is_file():
@@ -98,7 +99,9 @@ def validate_stage(root, plan, plan_sha):
     require(path.is_file() and not path.is_symlink(), 'Run local.yml successfully before transfer.yml.')
     manifest = json.loads(path.read_text())
     require(manifest.get('plan_sha256') == plan_sha, 'This local staging directory belongs to a different plan.')
-    require(manifest.get('shared_wallet') is True, 'Confirm a SHARED auto-login wallet before transfer.')
+    # Older completed stages included wallet hashes. Keep their verified media
+    # reusable, but remove credentials from every newly generated transfer.
+    manifest['files_sha256'] = {name: checksum for name, checksum in manifest['files_sha256'].items() if not name.startswith('wallet/')}
     require(manifest['files_sha256'] == collect(root), 'Local staged files changed after verification. Preserve the cycle and investigate before transfer.')
     require(digest(root / 'autoupgrade.jar') == plan['jar_sha256'], 'Staged JAR differs from the selected profile.')
     verify_download(root / 'media', plan['target_version'], plan.get('pinned_ru', ''), plan['media_platform'])
@@ -118,29 +121,54 @@ def transfer_manifest(root, plan, plan_sha):
             dest = plan['jar']
         else:
             area, relative = name.split('/', 1)
-            dest = str(Path(plan['folder'] if area == 'media' else plan['keystore']) / relative)
+            require(area == 'media', 'Only software and media metadata may be transferred.')
+            dest = str(Path(plan['folder']) / relative)
         if name == 'media/patches_info.json':
             source = root / 'transfer-patches_info.json'
             checksum = digest(source)
-        output.append({'src': str(source), 'dest': dest, 'sha256': checksum, 'mode': '0700' if name.startswith('wallet/') else '0600'})
+        output.append({'src': str(source), 'dest': dest, 'sha256': checksum, 'mode': '0600'})
     result = {'plan_sha256': plan_sha, 'files': output}
     save(root / 'transfer.json', result)
     return result
 
 
+def configure_wallet(root, java, jar, config):
+    while True:
+        print('\nConfigure MOS credentials on this workstation:\n'
+              '  1. At MOS>, enter: add -user YOUR_MOS_USER\n'
+              '     Replace YOUR_MOS_USER with your MOS login; enter its password at the hidden prompts.\n'
+              '     The wallet password protects the wallet; it is not your MOS password.\n'
+              '  2. Enter: list\n'
+              '     Check that credentials are loaded and the required services connect successfully.\n'
+              '  3. Enter: save\n'
+              '     If prompted for auto-login mode, choose YES (local auto-login).\n'
+              '  4. Enter: exit\n'
+              'Saving an empty wallet does not add MOS credentials. The wallet stays on this workstation.\n'
+              'Passwords go only to the native hidden prompts; Ansible does not record this dialogue.\n', flush=True)
+        # Inherit the real terminal. Do not capture wallet dialogue or pass credentials.
+        subprocess.run([java, '-jar', str(jar), '-patch', '-config', str(config), '-load_password'], check=True)
+        private_tree(root / 'wallet')
+        answer = input('Did list confirm loaded MOS credentials and successful connections? Type YES to download, RETRY to reopen the wallet, or NO to stop: ').strip()
+        if answer == 'RETRY':
+            continue
+        require(answer == 'YES', 'MOS credentials were not confirmed. Rerun local.yml and use add -user, list, save and exit in the existing wallet.')
+        require((root / 'wallet/cwallet.sso').is_file() and (root / 'wallet/ewallet.p12').is_file(), 'Save the wallet with auto-login YES, then rerun local.yml. Wallet files alone do not prove that MOS credentials were added.')
+        return
+
+
 def prepare(root, plan, plan_sha, java, jar_url=JAR_URL):
     require(plan.get('controller_download'), 'This bundle uses server downloads. Select workstation downloads in ALIS and export a new bundle.')
     check_directory(root, plan_sha)
+    if (root / 'manifest.json').exists():
+        validate_stage(root, plan, plan_sha)
+        print('Local download already verified. No internet, wallet or server connection needed.')
+        return False
     os.chmod(root, 0o700)
     for area in ('media', 'wallet', 'logs'):
         private_tree(root / area)
     binding = root / 'plan.sha256'
     if not binding.exists():
         binding.write_text(plan_sha + '\n'); os.chmod(binding, 0o600)
-    if (root / 'manifest.json').exists():
-        validate_stage(root, plan, plan_sha)
-        print('Local download already verified. No internet or server connection needed.')
-        return False
     require(sys.stdin.isatty(), 'Local wallet setup requires an interactive terminal. Run ansible-playbook local.yml in a Terminal.')
     require(input('Download AutoUpgrade and prepare the local MOS wallet/media now? Type YES: ').strip() == 'YES', 'Local preparation was not approved.')
     jar = root / 'autoupgrade.jar'
@@ -159,18 +187,16 @@ def prepare(root, plan, plan_sha, java, jar_url=JAR_URL):
     require(re.search(r'(?<![\d.])' + re.escape(plan['profile']) + r'(?![\d.])', version), 'Unexpected AutoUpgrade build.')
     config = root / 'autoupgrade.download.cfg'
     config.write_text(parameters(plan, root)); os.chmod(config, 0o600)
-    print('\nMOS wallet setup: add -user YOUR_MOS_USER, list, exit. Save YES and select auto-login SHARED.\nPasswords go only to the native hidden prompts; they are not recorded by Ansible.\n', flush=True)
-    # Inherit the real terminal. Do not capture wallet dialogue or pass credentials.
-    subprocess.run([java, '-jar', str(jar), '-patch', '-config', str(config), '-load_password'], check=True)
-    private_tree(root / 'wallet')
-    require((root / 'wallet/cwallet.sso').is_file() and (root / 'wallet/ewallet.p12').is_file(), 'The loader did not save both AutoUpgrade wallet files.')
-    require(input('Confirm that auto-login was saved as SHARED for transfer to another host. Type SHARED: ').strip() == 'SHARED', 'Portable-wallet confirmation is required; rerun local.yml to configure it.')
+    configure_wallet(root, java, jar, config)
     print('Downloading target release ' + plan['target_version'] + ' for ' + plan['media_platform'] + ' ...', flush=True)
-    subprocess.run([java, '-jar', str(jar), '-patch', '-config', str(config), '-mode', 'download', '-noconsole'], check=True)
+    try:
+        subprocess.run([java, '-jar', str(jar), '-patch', '-config', str(config), '-mode', 'download', '-noconsole'], check=True)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError('AutoUpgrade download failed (exit ' + str(error.returncode) + '). Review its message above. If MOS credentials are missing, rerun local.yml and enter add -user YOUR_MOS_USER, list, save and exit in the existing wallet. Nothing was transferred.') from error
     private_tree(root / 'media')
     verify_download(root / 'media', plan['target_version'], plan.get('pinned_ru', ''), plan['media_platform'])
-    save(root / 'manifest.json', {'plan_sha256': plan_sha, 'shared_wallet': True, 'files_sha256': collect(root)})
-    print('Local software and wallet verified. You can now connect VPN and run transfer.yml.', flush=True)
+    save(root / 'manifest.json', {'plan_sha256': plan_sha, 'wallet_scope': 'controller', 'files_sha256': collect(root)})
+    print('Local software verified. You can now connect VPN and run transfer.yml. The MOS wallet stays here.', flush=True)
     return True
 
 

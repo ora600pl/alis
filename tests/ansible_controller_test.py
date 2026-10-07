@@ -42,7 +42,7 @@ class ControllerTests(unittest.TestCase):
         save(self.root / 'media/patches_info.json', self.metadata)
 
     def certify(self):
-        save(self.root / 'manifest.json', {'plan_sha256': 'plan', 'shared_wallet': True, 'files_sha256': controller.collect(self.root)})
+        save(self.root / 'manifest.json', {'plan_sha256': 'plan', 'wallet_scope': 'controller', 'files_sha256': controller.collect(self.root)})
 
     def test_target_only_parameters_are_materialized_for_this_machine(self):
         result = controller.parameters(self.plan, self.root)
@@ -52,13 +52,15 @@ class ControllerTests(unittest.TestCase):
         self.assertIn('media.folder=' + str(self.root / 'media'), result)
         self.assertNotIn('/server/', result)
 
-    def test_transfer_includes_jar_all_wallet_and_companion_files_and_rebases_metadata(self):
+    def test_transfer_includes_jar_and_media_but_never_mos_wallet(self):
         self.certify()
         result = controller.transfer_manifest(self.root, self.plan, 'plan')
         files = {entry['dest']: entry for entry in result['files']}
-        for name in ['/server/autoupgrade.jar', '/server/media/db.zip', '/server/media/aru-bug-map.json', '/server/media/patches_info.json', '/server/wallet/cwallet.sso', '/server/wallet/ewallet.p12']:
+        for name in ['/server/autoupgrade.jar', '/server/media/db.zip', '/server/media/aru-bug-map.json', '/server/media/patches_info.json']:
             self.assertIn(name, files)
             self.assertEqual(digest(files[name]['src']), files[name]['sha256'])
+        self.assertEqual(len(files), 4)
+        self.assertFalse(any('wallet/' in entry['src'] or entry['dest'].startswith('/server/wallet') for entry in result['files']))
         self.assertEqual(json.loads(Path(files['/server/media/patches_info.json']['src']).read_text())['patchFolder'], '/server/media')
         self.assertEqual(json.loads((self.root / 'media/patches_info.json').read_text())['patchFolder'], str(self.root / 'media'))
 
@@ -83,21 +85,67 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'pinned target RU'):
             verify_download(self.root / 'media', '23', pinned_ru='23.26.2')
 
-    def test_changed_wallet_companion_or_jar_blocks_transfer(self):
-        for name in ['wallet/cwallet.sso', 'media/aru-bug-map.json', 'autoupgrade.jar']:
+    def test_changed_media_companion_or_jar_blocks_transfer(self):
+        for name in ['media/db.zip', 'media/aru-bug-map.json', 'autoupgrade.jar']:
             with self.subTest(name=name):
                 self.certify();path=self.root / name;original=path.read_bytes();path.write_bytes(b'CHANGED')
                 with self.assertRaisesRegex(RuntimeError, 'files changed'):
                     controller.transfer_manifest(self.root, self.plan, 'plan')
                 path.write_bytes(original)
 
-    def test_other_cycle_and_unconfirmed_wallet_block_transfer(self):
+    def test_other_cycle_blocks_transfer(self):
         self.certify()
         with self.assertRaisesRegex(RuntimeError, 'different plan'):
             controller.validate_stage(self.root, self.plan, 'other')
-        manifest=json.loads((self.root / 'manifest.json').read_text());manifest['shared_wallet']=False;save(self.root / 'manifest.json', manifest)
-        with self.assertRaisesRegex(RuntimeError, 'SHARED'):
-            controller.validate_stage(self.root, self.plan, 'plan')
+
+    def test_wallet_changes_or_removal_do_not_block_verified_media(self):
+        self.certify()
+        for path in (self.root / 'wallet').iterdir():path.write_bytes(b'ROTATED LOCAL CREDENTIALS')
+        controller.transfer_manifest(self.root, self.plan, 'plan')
+        for path in (self.root / 'wallet').iterdir():path.unlink()
+        (self.root / 'wallet').rmdir()
+        controller.transfer_manifest(self.root, self.plan, 'plan')
+        (self.root / 'plan.sha256').write_text('plan')
+        with patch('controller.subprocess.run', side_effect=AssertionError('No Java on offline resume')):
+            self.assertFalse(controller.prepare(self.root, self.plan, 'plan', 'java'))
+        self.assertFalse((self.root / 'wallet').exists())
+
+    def test_legacy_completed_manifest_never_transfers_wallet_entries(self):
+        files=controller.collect(self.root)
+        files.update({'wallet/'+p.name:digest(p) for p in (self.root/'wallet').iterdir()})
+        save(self.root/'manifest.json', {'plan_sha256':'plan','shared_wallet':True,'files_sha256':files})
+        (self.root/'wallet/cwallet.sso').unlink()
+        result=controller.transfer_manifest(self.root,self.plan,'plan')
+        self.assertEqual(len(result['files']),4)
+        self.assertFalse(any('/wallet/' in entry['src'] for entry in result['files']))
+
+    def test_empty_wallet_can_be_reopened_before_download_confirmation(self):
+        with patch('controller.subprocess.run') as native, patch('builtins.input',side_effect=['RETRY','YES']):
+            controller.configure_wallet(self.root,'java',self.root/'autoupgrade.jar',self.root/'download.cfg')
+        self.assertEqual(native.call_count,2)
+        for args,kwargs in native.call_args_list:
+            self.assertIn('-load_password',args[0])
+            self.assertNotIn('stdout',kwargs);self.assertNotIn('input',kwargs)
+
+    def test_existing_wallet_files_do_not_replace_credential_confirmation(self):
+        with patch('controller.subprocess.run'), patch('builtins.input',return_value='NO'):
+            with self.assertRaisesRegex(RuntimeError,'credentials were not confirmed'):
+                controller.configure_wallet(self.root,'java',self.root/'autoupgrade.jar',self.root/'download.cfg')
+
+    def test_failed_download_preserves_wallet_and_has_repair_instructions(self):
+        from types import SimpleNamespace
+        (self.root/'plan.sha256').write_text('plan');self.plan['profile']='26.6.260925'
+        before=(self.root/'wallet/ewallet.p12').read_bytes()
+        def native(argv,**kwargs):
+            if '-version' in argv:return SimpleNamespace(stdout='26.6.260925')
+            if '-mode' in argv:raise subprocess.CalledProcessError(1,argv)
+            return SimpleNamespace(returncode=0)
+        with patch('controller.subprocess.run',side_effect=native), patch('controller.sys.stdin.isatty',return_value=True), patch('builtins.input',side_effect=['YES','YES']):
+            with self.assertRaisesRegex(RuntimeError,'add -user YOUR_MOS_USER'):
+                controller.prepare(self.root,self.plan,'plan','java')
+        self.assertFalse((self.root/'manifest.json').exists())
+        self.assertFalse((self.root/'transfer.json').exists())
+        self.assertEqual((self.root/'wallet/ewallet.p12').read_bytes(),before)
 
     def test_symlinks_cannot_be_packaged(self):
         (self.root / 'media/link').symlink_to(self.root / 'wallet/ewallet.p12')
@@ -137,7 +185,7 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse((self.root / 'autoupgrade.jar').exists())
         self.assertFalse((self.root / 'autoupgrade.jar.part').exists())
 
-    def test_downloads_pinned_jar_then_requires_interactive_shared_wallet(self):
+    def test_downloads_pinned_jar_then_requires_local_credential_confirmation(self):
         import io
         from types import SimpleNamespace
         jar_bytes=(self.root/'autoupgrade.jar').read_bytes();(self.root/'autoupgrade.jar').unlink()
@@ -155,10 +203,12 @@ class ControllerTests(unittest.TestCase):
             else:
                 (self.root/'media/db.zip').write_bytes(b'FAKE DATABASE MEDIA');self.write_metadata()
             return SimpleNamespace(returncode=0)
-        with patch('controller.sys.stdin.isatty',return_value=True), patch('builtins.input',side_effect=['YES','SHARED']), patch('controller.urllib.request.urlopen',return_value=io.BytesIO(jar_bytes)), patch('controller.subprocess.run',side_effect=native):
+        with patch('controller.sys.stdin.isatty',return_value=True), patch('builtins.input',side_effect=['YES','YES']), patch('controller.urllib.request.urlopen',return_value=io.BytesIO(jar_bytes)), patch('controller.subprocess.run',side_effect=native):
             self.assertTrue(controller.prepare(self.root,self.plan,'plan','java'))
         self.assertIn('-load_password',commands[1]);self.assertIn('download',commands[2]);self.assertEqual(len(commands),3)
-        self.assertTrue((self.root/'manifest.json').is_file())
+        manifest=json.loads((self.root/'manifest.json').read_text())
+        self.assertEqual(manifest['wallet_scope'],'controller')
+        self.assertFalse(any(name.startswith('wallet/') for name in manifest['files_sha256']))
 
     def test_failed_macos_transfer_removes_partial_jar_before_native_execution(self):
         (self.root/'autoupgrade.jar').unlink()

@@ -52,7 +52,7 @@
         "status": "available",
         "source": "oracle/commons/config/CommonConfigParameters.java:12",
         "label": "AutoUpgrade keystore",
-        "help": "Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host; workstation transfers require SHARED auto-login.",
+        "help": "Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host. A workstation MOS wallet stays local and uses auto-login YES.",
         "group": "Database and reporting",
         "evidence": "JAR declaration and selected consumer/validator inspection; server-dependent constraints are not simulated."
       },
@@ -1227,7 +1227,7 @@
         "status": "available",
         "source": "oracle/commons/config/CommonConfigParameters.java:12",
         "label": "AutoUpgrade keystore",
-        "help": "Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host; workstation transfers require SHARED auto-login.",
+        "help": "Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host. A workstation MOS wallet stays local and uses auto-login YES.",
         "group": "Database and reporting",
         "evidence": "JAR declaration and selected consumer/validator inspection; server-dependent constraints are not simulated."
       },

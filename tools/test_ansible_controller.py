@@ -20,7 +20,7 @@ def interactive(command, cwd, env, answers):
     pid, fd = pty.fork()
     if pid == 0:
         os.chdir(cwd); os.execvpe(command[0], command, env)
-    output, index = b'', 0
+    output, index, consumed = b'', 0, 0
     deadline = time.monotonic() + 180
     try:
         while time.monotonic() < deadline:
@@ -32,7 +32,8 @@ def interactive(command, cwd, env, answers):
                 if not data:
                     break
                 output += data
-                if index < len(answers) and answers[index][0].encode() in output:
+                if index < len(answers) and answers[index][0].encode() in output[consumed:]:
+                    consumed = output.index(answers[index][0].encode(), consumed) + len(answers[index][0].encode())
                     time.sleep(0.3)
                     os.write(fd, (answers[index][1] + '\n').encode()); index += 1
         else:
@@ -70,12 +71,23 @@ assert not any('source_home' in key or key.endswith('.sid') for key in values)
 assert values['media.target_version']=='26' and values['media.platform']=='LINUX.X64'
 if '-load_password' in sys.argv:
     assert sys.stdin.isatty() and sys.stdout.isatty(), 'Native loader needs a real terminal'
-    assert input('SIMULATED wallet mode: ')=='SHARED'
     wallet=Path(values['global.keystore'])
-    (wallet/'cwallet.sso').write_bytes(b'FAKE SHARED WALLET')
+    command=input('MOS> ')
+    if command.startswith('add -user '):
+        assert command=='add -user test@example.invalid'
+        (wallet/'fake-credentials-added').write_text('SIMULATED ONLY')
+        assert input('MOS> ')=='list'
+        print('SIMULATED Credentials Loaded - Connection Successful')
+        assert input('MOS> ')=='save'
+    else:
+        assert command=='save'  # Reproduce saving an empty wallet on the first attempt.
+    assert input('SIMULATED wallet mode: ')=='YES'
+    (wallet/'cwallet.sso').write_bytes(b'FAKE LOCAL WALLET')
     (wallet/'ewallet.p12').write_bytes(b'FAKE PASSWORD WALLET')
+    assert input('MOS> ')=='exit'
 else:
     assert sys.argv[sys.argv.index('-mode')+1]=='download'
+    assert (Path(values['global.keystore'])/'fake-credentials-added').is_file(), 'An empty wallet is insufficient'
     folder=Path(values['media.folder']);media=folder/'db.zip'
     with zipfile.ZipFile(media,'w') as archive:archive.writestr('SIMULATED.txt','No Oracle binaries')
     (folder/'aru-bug-map.json').write_text('{}')
@@ -92,7 +104,7 @@ else:
         command=[executable,'local.yml','-e',json.dumps({'alis_controller_java':str(fake)})]
         code,output=interactive(command,bundle,env,[('Type YES:', 'NO')])
         assert code!=0 and not server.exists(), output
-        code,output=interactive(command,bundle,env,[('Type YES:', 'YES'),('SIMULATED wallet mode:', 'SHARED'),('Type SHARED:', 'SHARED')])
+        code,output=interactive(command,bundle,env,[('Type YES:', 'YES'),('MOS> ', 'save'),('SIMULATED wallet mode:', 'YES'),('MOS> ', 'exit'),('Type YES to download, RETRY', 'RETRY'),('MOS> ', 'add -user test@example.invalid'),('MOS> ', 'list'),('MOS> ', 'save'),('SIMULATED wallet mode:', 'YES'),('MOS> ', 'exit'),('Type YES to download, RETRY', 'YES')])
         assert code==0 and not server.exists(), output
         # Completed staging works without Java or the internet.
         result=subprocess.run([executable,'local.yml','-e','alis_controller_java=/does/not/exist'],cwd=bundle,env=env,capture_output=True,text=True,stdin=subprocess.DEVNULL)
@@ -101,15 +113,16 @@ else:
         assert code!=0 and not server.exists(),output
         code,output=interactive([executable,'transfer.yml'],bundle,env,[('Type YES to transfer','YES')])
         assert code==0,output
-        assert (server/'wallet/ewallet.p12').read_bytes()==b'FAKE PASSWORD WALLET'
+        assert not (server/'wallet').exists(), 'MOS wallet must stay on the controller'
+        assert not any('/wallet/' in item['dest'] for item in json.loads((server/'work/transferred.json').read_text())['files'])
         assert (server/'media/aru-bug-map.json').is_file()
         assert json.loads((server/'media/patches_info.json').read_text())['patchFolder']==str(server/'media')
         assert json.loads((server/'work/transferred.json').read_text())['plan_sha256']==hashlib.sha256(plan_path.read_bytes()).hexdigest()
-        assert (server/'wallet/cwallet.sso').stat().st_mode & 0o777 == 0o700
+        assert (local/'wallet/cwallet.sso').stat().st_mode & 0o777 == 0o700
         (server/'autoupgrade.jar').write_bytes(b'KEEP EXISTING CYCLE')
         result=subprocess.run([executable,'transfer.yml','-e','alis_approve_transfer=true'],cwd=bundle,env=env,capture_output=True,text=True)
         assert result.returncode!=0 and (server/'autoupgrade.jar').read_bytes()==b'KEEP EXISTING CYCLE',result.stdout+result.stderr
-        print('PASS real Ansible: local approval, native terminal, offline local resume, transfer NO/YES, complete copy, metadata rebasing and conflict preservation.',flush=True)
+        print('PASS real Ansible: local approval, empty-wallet retry in the native terminal, local-only MOS credentials, offline resume, transfer NO/YES, complete media copy, metadata rebasing and conflict preservation.',flush=True)
 
 
 if __name__ == '__main__':

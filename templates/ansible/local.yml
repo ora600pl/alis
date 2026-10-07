@@ -5,7 +5,7 @@
   gather_facts: false
   become: false
   tasks:
-    - name: Prepare AutoUpgrade, the portable wallet and target media locally
+    - name: Prepare AutoUpgrade, local MOS credentials and target media
       alis_controller:
         action: prepare
         bundle: "{{ playbook_dir }}"

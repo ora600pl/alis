@@ -26,7 +26,7 @@ Add `-K` if sudo requires a password. The remote sequence is **analyze → downl
 
 ## Workstation downloads and VPN
 
-In ALIS **Media**, choose **On this workstation (Ansible controller)** and explicitly select the **target architecture**. Install Java locally. The command above first downloads the pinned JAR, opens the native MOS wallet loader (save **YES**, auto-login **SHARED**) and downloads target-release media. It then pauses so you can connect VPN and approve transfer of the JAR, AutoUpgrade wallet and complete media/metadata. Server phases use `download=NO`. Database TDE wallets are separate.
+In ALIS **Media**, choose **On this workstation (Ansible controller)** and explicitly select the **target architecture**. Install Java locally. The command above first downloads the pinned JAR, opens the native MOS wallet loader and downloads target-release media. At `MOS>`, enter `add -user YOUR_MOS_USER`, `list`, `save`, then `exit`; enter the MOS password at the hidden prompts and choose auto-login **YES**. Saving an empty wallet does not add credentials. Confirm successful connections, or enter **RETRY** to reopen the loader. Then connect VPN and approve transfer of the JAR and complete media/metadata. The MOS wallet stays local; server phases use `download=NO`. Server TDE credentials have their own preparation.
 
 To split the network stages:
 

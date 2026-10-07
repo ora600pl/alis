@@ -20,7 +20,7 @@
   const DETAILS = {
     global_log_dir: ['Global log directory', 'Use a separate log directory for each independent AutoUpgrade run.'],
     autoupg_log_dir: ['Legacy global log directory', 'Older spelling. Prefer global.global_log_dir in new configurations.'],
-    keystore: ['AutoUpgrade keystore', 'Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host; workstation transfers require SHARED auto-login.'],
+    keystore: ['AutoUpgrade keystore', 'Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host. A workstation MOS wallet stays local and uses auto-login YES.'],
     sid: ['Source SID', 'The source CDB or non-CDB instance SID. This is not a service name.'],
     source_home: ['Source Oracle home', 'Absolute path on the database server. It is not checked on this computer.'],
     target_home: ['Target Oracle home', 'Absolute path to the target Oracle home. Analyze/fixups may use target_version without this home.'],
