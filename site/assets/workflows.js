@@ -90,7 +90,47 @@
     }
     return {home,deploy};
   }
-  function runbook(project,profile){
+  function downloadsMedia(project,profile){
+    return project.jobs.some(j=>{const v=n=>C.effective(project,j,n,profile).value;return (project.operation==='patch'||yes(v('create_oracle_home')))&&!/^GOLDIMAGE:/i.test(v('patch')||'')&&(project.mode==='download'||yes(v('download')));});
+  }
+  function controllerDownload(project,profile){return project.execution?.downloadHost==='controller'&&downloadsMedia(project,profile);}
+  function downloadProject(project,profile,local=false){
+    // Download requests must not inherit the source database release (OUA uses it).
+    const p=C.newProject(profile.id);p.operation='patch';p.mode='download';p.title=project.title;
+    p.fileName=project.fileName.replace(/\.cfg$/,'.download.cfg');p.jarPath=local?'alis-staging/autoupgrade.jar':project.jarPath;
+    p.execution=C.clone(project.execution||{});if(local)delete p.execution.javaPath;p.globals={};
+    p.globals.global_log_dir=local?'./alis-staging/logs':(project.globals.global_log_dir||project.globals.autoupg_log_dir||'').replace(/\/$/,'')+'/download';
+    p.globals.keystore=local?'./alis-staging/wallet':project.globals.keystore;
+    p.jobs=project.jobs.map(j=>{
+      const values={},get=n=>C.effective(project,j,n,profile).value;
+      for(const name of ['target_version','patch','gold_image','gold_image.security_patch_level'])if(get(name)!=null)values[name]=String(get(name));
+      const platform=project.operation==='upgrade'?j.context?.mediaPlatform:get('platform');if(platform)values.platform=platform;
+      values.folder=local?'./alis-staging/media':get('folder')||get('download_folder');
+      values.download='YES';
+      return {prefix:j.prefix,scenario:'download',values,pdb:{},context:C.clone(j.context||{})};
+    });
+    return p;
+  }
+  function offlineProject(project){
+    const p=C.clone(project);p.execution={...p.execution,downloadHost:'server'};
+    for(const j of p.jobs)j.values.download='NO';
+    return p;
+  }
+  function runbook(project,profile,options={}){
+    if(controllerDownload(project,profile)){
+      const remote=offlineProject(project);remote.fileName=options.bundle?project.fileName:project.fileName.replace(/\.cfg$/,'.offline.cfg');
+      const result=runbook(remote,profile),local=downloadProject(project,profile,true);
+      const steps=[
+        {title:'Prepare AutoUpgrade on the download workstation',where:'Local workstation / Ansible controller',text:'Download the Ansible bundle and run local.yml, or follow the manual commands below from the directory containing the generated files. Save the generated download configuration below before opening the loader. Java must be installed locally. The downloaded JAR must match the selected profile; never replace the JAR of an existing cycle.',code:'umask 077\nmkdir -p alis-staging/media alis-staging/wallet alis-staging/logs\ncurl --fail --location https://download.oracle.com/otn-pub/otn_software/autoupgrade.jar --output alis-staging/autoupgrade.jar\n# Expected SHA-256: '+profile.jarSha256+'\nshasum -a 256 alis-staging/autoupgrade.jar\njava -jar alis-staging/autoupgrade.jar -version',kind:'shell',sources:['downloads']},
+        {title:'Configure the portable MOS wallet locally',where:'Local workstation / MOS> console',text:'Run the password loader interactively. Use add -user YOUR_MOS_USER, list, then exit; save YES and choose auto-login SHARED so the wallet can move to the Oracle software owner on another host. Enter secrets only at hidden native prompts. Only this AutoUpgrade keystore is transferred; database TDE wallets retain their own procedure.',code:configCommand(local,'-load_password'),kind:'shell',sources:['mos']},
+        {title:'Download the target release and platform',where:'Local workstation',text:'Save '+local.fileName+' below. Explicitly select the TARGET platform in Media, even when this workstation uses a different OS or CPU. This software-only configuration has no source_home or SID. Verify the release and checksums in patches_info.json; retain the entire media directory and companion metadata.',code:C.command(local,'download'),kind:'shell',sources:['downloads','patch-parameters']},
+        {title:'Connect VPN and approve transfer',where:'Local workstation → target server',text:'Local downloads finish before any server connection. Connect VPN now if needed. In the Ansible bundle, transfer.yml asks for YES, then copies and verifies the pinned JAR, the complete AutoUpgrade wallet and media (including metadata), with private permissions. It rebases patches_info.json for the server directory. Run the remote cycle only after this transfer succeeds. The full '+project.operation+'.yml playbook includes both pauses.',code:project.mode==='download'?'# Download-only plan: keep the verified local media; copy it when needed.':project.operation==='patch'&&project.mode==='create_home'?'# Copy all media and the SHARED wallet to the configured server paths.\n# Rebase patches_info.json patchFolder to the server media directory.':('ansible-playbook local.yml\nansible-playbook transfer.yml\nansible-playbook '+(project.mode==='analyze'||project.mode==='fixups'?'analyze':'remote')+'.yml'),kind:'shell',sources:['downloads','mos']}
+      ];
+      result.steps=[...steps,...(project.mode==='download'?[]:result.steps)];
+      result.artifacts.unshift({name:options.bundle?'original-autoupgrade.cfg':project.fileName,type:'original configuration',content:C.renderConfig(project)},{name:local.fileName,type:'download configuration',content:C.renderConfig(local)});
+      result.issues=C.validate(project,profile);
+      return result;
+    }
     const steps=[],artifacts=[{name:project.fileName,type:'configuration',content:C.renderConfig(project)}],issues=C.validate(project,profile),e=project.execution||{};
     const powershell=e.shell==='powershell',soft=project.operation==='patch'&&['download','create_home'].includes(project.mode),sp=sourceProject(project,profile);
     const preparation=upgradePreparation(project,profile),execution=preparation?.deploy||project,software=preparation?.home||project;
@@ -107,7 +147,8 @@
     if(paths.length)add('Prepare working directories','Execution host / Oracle software owner','Create only the staging, log and keystore paths. Oracle homes, OS groups and installation prerequisites need their own server preparation.',powershell?paths.map(path=>'New-Item -ItemType Directory -Force -Path '+q(project,path)).join('\n'):'umask 077\nmkdir -p '+paths.map(path=>q(project,path)).join(' '));
     add('Place and review the generated files','Execution host',(preparation?'Save all three generated configurations below under their listed filenames. Keep '+project.fileName+' for analysis; use '+preparation.home.fileName+' for software preparation and '+preparation.deploy.fileName+' for database deployment.':'Save the configuration below as '+project.fileName+'.')+' Check paths, file ownership, intended media and the selected operation. ALIS does not upload files or run these commands.',powershell?'Get-Content -LiteralPath '+q(project,project.fileName):'cat '+q(project,project.fileName));
     if(project.operation==='upgrade'&&project.mode!=='postfixups'&&project.jobs.some(j=>j.scenario==='upgrade'&&String(C.effective(project,j,'target_version',profile).value)==='19'))add('Confirm release upgrade versus RU patching','Database owner','Verify the actual source database release. If both source and target are 19c, choose Patch existing databases and use -patch; this is an RU patch cycle. A target_home directory named 19.32 does not select that RU. RECOMMENDED resolves at download time; pin the patch expression if a specific RU is required.','','manual',['cli','downloads']);
-    const download=project.jobs.some(j=>{const v=n=>C.effective(project,j,n,profile).value;return (project.operation==='patch'||yes(v('create_oracle_home')))&&!/^GOLDIMAGE:/i.test(v('patch')||'')&&(project.mode==='download'||yes(v('download')));});
+    const download=downloadsMedia(project,profile),downloadConfig=downloadProject(project,profile);
+    if(download)artifacts.push({name:downloadConfig.fileName,type:'download configuration',content:C.renderConfig(downloadConfig)});
     if(download){
       add('Load MOS credentials','Download host / Oracle software owner','Create or open the wallet at global.keystore. Enter wallet and MOS passwords only at the terminal prompts. This is an interactive session.',configCommand(project,'-load_password'),'shell',['mos']);
       add('Complete the password-loader dialogue','MOS> console','Replace YOUR_MOS_USER if not supplied. Enter the MOS secret at the hidden prompt. list checks connectivity. On save/exit choose auto-login '+(e.autologin||'YES')+'. '+(profile.behavior?.strictPatchSyntax?'This build ignores add -csi.':'CSI is optional for this profile; add it only when your support setup requires it.')+' Auto-login SHARED must be an intentional cross-host choice.', 'add -user '+(e.mosUser||'YOUR_MOS_USER')+(e.csi&&!profile.behavior?.strictPatchSyntax?'\nadd -csi '+e.csi:'')+'\nlist\nsave\nexit','console',['mos','release']);
@@ -125,7 +166,7 @@
       if(project.mode==='deploy'&&project.operation==='upgrade')add('Confirm the complete upgrade path','Operation owner','After successful analysis, complete any software preparation below before approving database deployment. Deploy repeats checks and performs pending fixups, the upgrade and applicable post-upgrade work. A separate fixups run is optional. A staged remote migration uses the split source/target sequence below.','','manual',['modes','processing-modes']);
     }
     if(download&&(project.operation==='patch'&&(soft||project.mode==='deploy')||preparation)){
-      add('Download and inspect the media','Download host','This separate phase downloads software; it does not apply database changes.'+(preparation?' Explicit download mode fetches media even though the home-preparation file sets download=NO to keep installation offline.':'')+' Review patch inventory/patches_info.json and keep companion metadata with the files. Oracle service availability and entitlements are checked here.',C.command(software,'download'),'shell',['downloads']);
+      add('Download and inspect the media','Download host','Save and use '+downloadConfig.fileName+'. This separate software-only configuration selects the target release without source_home or SID. It does not apply database changes. Review the target release/platform and checksums in patches_info.json and keep companion metadata with the files. Oracle service availability and entitlements are checked here.',C.command(downloadConfig,'download'),'shell',['downloads']);
       if(profile.behavior?.resumeCli){
         const parts=project.jobs.flatMap(j=>C.patchParts(C.effective(project,j,'patch',profile).value,profile));
         if(parts.some(t=>['CPAT','DBSAT','EXAPATCHMGR','EXAQFSDP','OEM','GI'].includes(t.type)))add('Verify the selected download products','Media owner','Selections: '+parts.map(t=>t.token).join(', ')+'. CPAT, DBSAT, Exadata tools/bundles and OEM packages are downloaded for their separate product procedures. GI downloads a Grid Infrastructure image by default; gold_image=NO requests the GI RU patch instead. No GI, Exadata or OEM deployment is generated. TOOLS retains AU, OPATCH, SQLCL, CVU and AHF; add CPAT or DBSAT explicitly.','','manual');
@@ -198,7 +239,7 @@
     ];
     return {steps,artifacts,issues,toolbox:soft?toolbox.slice(0,3):toolbox,sources:SOURCES,profile:profile.id,title:project.title};
   }
-  function markdown(project,profile){const r=runbook(project,profile),out=['# '+r.title,'','AutoUpgrade '+r.profile+' · '+project.operation+' / '+project.mode,'','These are instructions, not an executed or database-validated run.'];if(r.issues.length)out.push('','## Review before execution','',...r.issues.map(i=>'- '+i.level.toUpperCase()+': '+i.text));r.steps.forEach((s,i)=>{out.push('','## '+(i+1)+'. '+s.title,'','Run on: '+s.where,'',s.text);if(s.code)out.push('','```'+(s.kind==='console'?'text':project.execution?.shell==='powershell'?'powershell':'sh'),s.code,'```');});for(const a of r.artifacts)out.push('','## File: '+a.name,'','```properties',a.content.trimEnd(),'```');out.push('','## Recovery and diagnostics — separate from normal execution');for(const t of r.toolbox)out.push('','### '+t.title,'',t.text,'','```text',t.code,'```');out.push('','## Sources','',...SOURCES.map(s=>'- ['+s.title+']('+s.url+')'));return out.join('\n')+'\n';}
+  function markdown(project,profile,options={}){const r=runbook(project,profile,options),out=['# '+r.title,'','AutoUpgrade '+r.profile+' · '+project.operation+' / '+project.mode,'','These are instructions, not an executed or database-validated run.'];if(r.issues.length)out.push('','## Review before execution','',...r.issues.map(i=>'- '+i.level.toUpperCase()+': '+i.text));r.steps.forEach((s,i)=>{out.push('','## '+(i+1)+'. '+s.title,'','Run on: '+s.where,'',s.text);if(s.code)out.push('','```'+(s.kind==='console'?'text':project.execution?.shell==='powershell'?'powershell':'sh'),s.code,'```');});for(const a of r.artifacts)out.push('','## File: '+a.name,'','```properties',a.content.trimEnd(),'```');out.push('','## Recovery and diagnostics — separate from normal execution');for(const t of r.toolbox)out.push('','### '+t.title,'',t.text,'','```text',t.code,'```');out.push('','## Sources','',...SOURCES.map(s=>'- ['+s.title+']('+s.url+')'));return out.join('\n')+'\n';}
   function exampleProject(profileId,scenario) {
     const p=C.newProject(profileId);C.chooseScenario(p,0,scenario);p.title=C.SCENARIOS[scenario].label;p.fileName=scenario+'.cfg';
     p.globals={global_log_dir:'/home/oracle/autoupgrade/logs',keystore:'/home/oracle/autoupgrade/keystore'};
@@ -223,5 +264,5 @@
     return p;
   }
   function previewCommand(project,profile){const mode=C.initialMode(project),source=mode==='analyze'?sourceProject(project,profile):null;return C.command(source||project,mode);}
-  return {SOURCES,GUIDES,CLI,cliFor,runbook,markdown,sourceProject,upgradePreparation,base,configCommand,exampleProject,previewCommand};
+  return {SOURCES,GUIDES,CLI,cliFor,runbook,markdown,sourceProject,upgradePreparation,downloadProject,controllerDownload,downloadsMedia,offlineProject,base,configCommand,exampleProject,previewCommand};
 });

@@ -47,6 +47,9 @@ def setup(root, failure='none', operation='patch'):
     (root / 'files/autoupgrade.cfg').write_text(config)
     (root / 'files/autoupgrade.home.cfg').write_text(home_config)
     (root / 'files/autoupgrade.deploy.cfg').write_text(deploy_config)
+    download_config = 'global.global_log_dir=' + str(root / 'logs/download') + '\nmedia.target_version=' + ('26' if operation == 'upgrade' else '19') + '\nmedia.platform=LINUX.X64\nmedia.patch=RECOMMENDED\nmedia.folder=' + str(root / 'media') + '\nmedia.download=YES\n'
+    (root / 'files/autoupgrade.download.cfg').write_text(download_config)
+    plan.update(download_config_sha256=hashlib.sha256(download_config.encode()).hexdigest(), require_target_media=True, target_version='23' if operation == 'upgrade' else '19')
     (root / 'files/plan.json').write_text(json.dumps(plan, indent=2) + '\n')
     shutil.copyfile(Path(__file__).resolve().parents[1] / 'files/runner.py', root / 'files/runner.py')
     print(json.dumps({'sandbox': str(root), 'simulation': True}))
@@ -69,7 +72,7 @@ def fake_java(root, fault):
         print('Wrong AutoUpgrade operation flag')
         return 9
     if upgrade:
-        expected = 'autoupgrade.home.cfg' if mode in ('download', 'create_home') else 'autoupgrade.deploy.cfg' if mode == 'deploy' and plan.get('staged_upgrade_home') else 'autoupgrade.cfg'
+        expected = 'autoupgrade.download.cfg' if mode == 'download' else 'autoupgrade.home.cfg' if mode == 'create_home' else 'autoupgrade.deploy.cfg' if mode == 'deploy' and plan.get('staged_upgrade_home') else 'autoupgrade.cfg'
         if config.name != expected or (mode == 'deploy' and 'create_oracle_home=YES' in config.read_text()):
             print('Software preparation must be separate from database deployment')
             return 9
@@ -82,6 +85,9 @@ def fake_java(root, fault):
     if fault == 'slow':
         time.sleep(8)
     if mode == 'download':
+        if config.name != 'autoupgrade.download.cfg' or 'source_home=' in config.read_text() or '.sid=' in config.read_text():
+            print('Download must select only the target release')
+            return 9
         if fault == 'download':
             print('Simulated download produced no media, despite Java returning zero.')
             return 0
@@ -89,7 +95,7 @@ def fake_java(root, fault):
         with zipfile.ZipFile(media, 'w') as archive:
             archive.writestr('SIMULATION.txt', 'ALIS SIMULATION ONLY')
         checksum = hashlib.sha256(media.read_bytes()).hexdigest()
-        metadata = {'patchFolder': str(root / 'media'), 'patches': [{'description': 'Gold Image', 'releaseUpdate': '19.28.0.0.0', 'files': [{'name': media.name, 'size': media.stat().st_size, 'checksum-256': '0' * 64 if fault == 'checksum' else checksum}]}]}
+        metadata = {'patchFolder': str(root / 'media'), 'patches': [{'description': 'Gold Image', 'releaseUpdate': '23.26.3.0.0' if upgrade else '19.28.0.0.0', 'files': [{'name': media.name, 'size': media.stat().st_size, 'checksum-256': '0' * 64 if fault == 'checksum' else checksum}]}]}
         (root / 'media/patches_info.json').write_text(json.dumps(metadata))
         print('Simulated download completed. No job status/progress is written by download mode.')
         return 0

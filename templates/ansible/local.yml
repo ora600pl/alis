@@ -1,0 +1,13 @@
+---
+- name: Download on the controller before connecting VPN
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Prepare AutoUpgrade, the portable wallet and target media locally
+      alis_controller:
+        action: prepare
+        bundle: "{{ playbook_dir }}"
+        root: "{{ alis_local_dir | default(playbook_dir + '/controller') }}"
+        java: "{{ alis_controller_java | default('java') }}"

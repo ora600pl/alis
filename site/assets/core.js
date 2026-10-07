@@ -20,7 +20,7 @@
   const DETAILS = {
     global_log_dir: ['Global log directory', 'Use a separate log directory for each independent AutoUpgrade run.'],
     autoupg_log_dir: ['Legacy global log directory', 'Older spelling. Prefer global.global_log_dir in new configurations.'],
-    keystore: ['AutoUpgrade keystore', 'Directory used by AutoUpgrade for its keystore. Load passwords with AutoUpgrade on the database server.'],
+    keystore: ['AutoUpgrade keystore', 'Directory used by AutoUpgrade for its keystore. Load passwords interactively on the selected download host; workstation transfers require SHARED auto-login.'],
     sid: ['Source SID', 'The source CDB or non-CDB instance SID. This is not a service name.'],
     source_home: ['Source Oracle home', 'Absolute path on the database server. It is not checked on this computer.'],
     target_home: ['Target Oracle home', 'Absolute path to the target Oracle home. Analyze/fixups may use target_version without this home.'],
@@ -345,6 +345,7 @@
     for(const [key,value] of pairs(e))if(typeof value!=='string'||/[\r\n\0]/.test(value))add('error','execution','Execution setting '+key+' must be a single line.');
     if(e.shell&&!['posix','powershell'].includes(e.shell))add('error','shell','Choose POSIX shell or PowerShell.');
     if(e.autologin&&!['YES','NO','SHARED'].includes(e.autologin))add('error','autologin','Choose an available wallet auto-login mode.');
+    if(e.downloadHost&&!['server','controller'].includes(e.downloadHost))add('error','download-host','Choose the database server or another workstation for downloads.');
     if(e.mosUser&&!/^[A-Za-z0-9_.+@-]+$/.test(e.mosUser))add('error','mos-user','Enter a MOS username, without a password.');
     if(e.csi&&!/^\d+$/.test(e.csi))add('error','csi','CSI must contain digits only; it is optional in this build.');
     if(e.jobIds&&!/^\d+(,\d+)*$/.test(e.jobIds))add('error','job-ids','Job identifiers must be numbers separated by commas.');
@@ -352,9 +353,14 @@
     for(const name of ['unattended','debug','restoreOnFail'])if(e[name]&&!['YES','NO'].includes(e[name]))add('error','execution','Execution setting '+name+' must be YES or NO.');
     const contextOptions={os:['linux','ol9','windows'],topology:['single','rac',...(profile.behavior?.haTopology?['seha','racone']:[])],role:['primary_dg','standby'],location:['remote'],sourceVersion:['19','21','23'],tde:['none','password','auto','okv']};
     for(const j of project.jobs) {
-      const get=n=>effective(project,j,n,profile).value,ctx=j.context||{},p=j.prefix;
+      const get=n=>n==='platform'&&project.operation==='upgrade'&&j.context?.mediaPlatform?j.context.mediaPlatform:effective(project,j,n,profile).value,ctx=j.context||{},p=j.prefix;
       const error=(code,msg,key='')=>add('error',code,p+': '+msg,key?p+'.'+key:'');
       const warn=(code,msg)=>add('warning',code,p+': '+msg);
+      if(e.downloadHost==='controller'&&(project.operation==='patch'||/^YES$/i.test(get('create_oracle_home')||''))&&(project.mode==='download'||/^YES$/i.test(get('download')||''))){
+        const platform=get('platform');
+        if(!['LINUX.X64','ARM.X64','AIX.X64','SPARC.X64','SOLARIS.X64','WINDOWS.X64'].includes(String(platform).toUpperCase()))error('download-platform','select the target architecture explicitly in Media for workstation downloads.');
+        if(!['19','21','23','26'].includes(String(get('target_version'))))error('download-target','set an explicit target_version for workstation downloads.');
+      }
       for(const [k,v] of pairs(ctx))if(typeof v!=='string'||/[\r\n\0]/.test(v))error('context','planning values must be single-line strings.');
       for(const [k,options] of pairs(contextOptions))if(ctx[k]&&!options.includes(ctx[k]))error('context','unsupported planning choice for '+k+'.');
       if(ctx.sourceOracleHome&&!/^(\/|[A-Za-z]:[\\/])/.test(ctx.sourceOracleHome))error('context-path','enter an absolute source Oracle home for the source-side runbook.');
@@ -448,6 +454,7 @@
           // upgrade operation and its settings in the generated configuration.
           const media=clone(project);media.operation='patch';media.mode='create_home';
           media.jobs=[clone(j)];media.jobs[0].scenario=get('source_home')?'prepare_home':'install';
+          if(ctx.mediaPlatform)media.jobs[0].values.platform=ctx.mediaPlatform;
           out.push(...validateWorkflows(media,profile));
         }
         if(j.scenario==='pdb_upgrade'&&!get('pdbs'))error('pdb-upgrade','select the PDBs already present in the target CDB.','pdbs');

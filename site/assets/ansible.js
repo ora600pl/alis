@@ -50,10 +50,13 @@
     const reasons = [...adapted.reasons,...C.validate(project,profile).filter(i=>i.level==='error').map(i=>i.text)];
     const job=project.jobs[0],ctx=job?.context||{},e=project.execution||{},a=settings(project),upgrade=project.operation==='upgrade';
     const get=n=>job?C.effective(project,job,n,profile).value:null;
+    const local=W.controllerDownload(project,profile),platform=upgrade?ctx.mediaPlatform:get('platform');
+    if(local&&!['LINUX.X64','ARM.X64'].includes(String(platform).toUpperCase()))reasons.push('Select the target Linux architecture explicitly in Media for workstation downloads.');
+    if(W.downloadsMedia(project,profile)&&!['19','21','23','26'].includes(String(get('target_version'))))reasons.push('Set target_version explicitly for target-only software downloads.');
     if(project.jobs.length!==1||!(project.operation==='patch'&&job?.scenario==='patch'||upgrade&&job?.scenario==='upgrade'))reasons.push('Ansible supports one local database: Patch existing databases or Upgrade a database. Migration, conversion and software-only workflows need separate automation.');
     if(!['analyze','deploy','fixups'].includes(project.mode))reasons.push('Select analyze, fixups or deploy. The bundle starts with analysis and runs a complete deployment cycle.');
     if(!['linux','ol9'].includes(ctx.os)||ctx.topology!=='single')reasons.push('In Environment, select Linux (or Oracle Linux 9) and Single instance.');
-    if(get('platform')&&!/^LINUX\./i.test(get('platform')))reasons.push('Use Linux media or leave platform omitted for the execution host.');
+    if(platform&&!/^(LINUX|ARM)\.X64$/i.test(platform))reasons.push('Use Linux x86-64 or Linux ARM media for this export.');
     if(ctx.role&&ctx.role!=='')reasons.push('Data Guard and standby roles need a separately coordinated Ansible workflow.');
     if(ctx.location==='remote'||e.shell==='powershell')reasons.push('This export requires a local source on a Linux execution host.');
     if(get('rac_rolling')!=='DISABLED'||(!upgrade&&get('patch_node')&&!/^localhost$/i.test(get('patch_node')))||get('home_settings.cluster_nodes'))reasons.push('Cluster settings are outside this single-instance export.');
@@ -66,7 +69,7 @@
       if(/^NO$/i.test(get('run_utlrp')||''))reasons.push('Upgrade verification requires recompilation; omit run_utlrp or use YES.');
     }
     if(ctx.tde&&!['none','auto'].includes(ctx.tde))reasons.push('Prepare a usable auto-login TDE wallet before exporting; password prompts and external-keystore workflows need separate automation.');
-    if(e.autologin==='NO')reasons.push('Unattended execution requires a prepared AutoUpgrade auto-login keystore.');
+    if(e.autologin==='NO'&&!local)reasons.push('Unattended execution requires a prepared AutoUpgrade auto-login keystore.');
     if(e.settingsPath)reasons.push('Custom internal settings files are outside this export.');
     if(String(get('drain_timeout')).toUpperCase()==='WAIT')reasons.push('Use a numeric drain timeout for this unattended workflow.');
     if(get('start_time')&&!/^NOW$/i.test(get('start_time')))reasons.push('Use start_time=NOW (or omit it); schedule the playbook from your automation system.');
@@ -95,6 +98,8 @@
     const state=assess(project,profile);
     if(!state.ready)throw new Error(state.reasons.join('\n'));
     const originalConfig=C.renderConfig(project);project=state.project;
+    const controller=W.controllerDownload(project,profile),requested=C.clone(project);
+    if(controller)project=W.offlineProject(project);
     const a=settings(project),e=project.execution||{},job=project.jobs[0],get=n=>C.effective(project,job,n,profile).value,operation=project.operation;
     const config=C.renderConfig(project),parts=C.patchParts(get('patch')||'',profile);
     const pinnedRu=parts.find(p=>['RU','RECOMMENDED'].includes(p.type)&&p.version)?.version||'';
@@ -102,8 +107,15 @@
     const runbook=W.runbook(runProject,profile),homeArtifact=runbook.artifacts.find(f=>f.type==='home preparation'),deployArtifact=runbook.artifacts.find(f=>f.type==='deployment configuration');
     const homeConfig=homeArtifact?.content||config;
     const deployConfig=deployArtifact?.content||config;
+    const downloadConfig=C.renderConfig(W.downloadProject(project,profile));
     const plan={format:2,simulation:false,profile:profile.id,jar_sha256:profile.jarSha256,jar:absolute(project.jarPath)?project.jarPath:a.workDir.replace(/\/$/,'')+'/'+project.jarPath,java:e.javaPath||'java',config_sha256:await sha256(config),home_config_sha256:await sha256(homeConfig),home_config_separate:Boolean(homeArtifact),create_home_prechecks:Boolean(profile.behavior?.createHomePrechecks),sid:get('sid'),source_home:get('source_home'),target_home:get('target_home'),log_dir:project.globals.global_log_dir||project.globals.autoupg_log_dir,folder:get('folder')||get('download_folder'),download:/^YES$/i.test(get('download')),keystore:project.globals.keystore||'',resume_cli:Boolean(profile.behavior?.resumeCli),debug:e.debug==='YES',restore_on_fail:e.restoreOnFail==='YES',pinned_ru:pinnedRu};
     plan.operation=operation;
+    plan.download_config_sha256=await sha256(downloadConfig);
+    plan.target_version=String(get('target_version')==='26'?'23':get('target_version'));
+    plan.media_platform=(operation==='upgrade'?job.context?.mediaPlatform:get('platform'))||'';
+    plan.controller_download=controller;
+    plan.require_target_media=Boolean(W.downloadsMedia(requested,profile));
+    plan.download_parameters=W.downloadProject(requested,profile).jobs[0].values;
     plan.deploy_config_sha256=await sha256(deployConfig);
     plan.deploy_config_separate=Boolean(deployArtifact);
     if(deployArtifact)plan.home_log_dir=W.upgradePreparation(runProject,profile).home.globals.global_log_dir;
@@ -113,16 +125,19 @@
       const test=files.find(f=>f.name==='test-local.yml');
       test.content=test.content.replace('import_playbook: patch.yml','import_playbook: upgrade.yml');
     }
-    if(state.adjustments.length) {
+    if(state.adjustments.length||controller) {
       files.push({name:'original-autoupgrade.cfg',content:originalConfig});
-      files.push({name:'config-adjustments.md',content:'# Imported configuration adapted for patching\n\nOnly files/autoupgrade.cfg and files/autoupgrade.home.cfg are executed. original-autoupgrade.cfg preserves the configuration before conversion and is never staged on the server.\n\n'+state.adjustments.map(text=>'- '+text).join('\n')+'\n'});
+      files.push({name:'config-adjustments.md',content:'# Configuration adaptations\n\noriginal-autoupgrade.cfg preserves the input and is never executed. The phase configurations under files/ are pinned in plan.json.\n\n'+[...state.adjustments,...(controller?['Remote phase configurations use download=NO. local.yml prepares target media with a separate source-free configuration on the controller.']:[])].map(text=>'- '+text).join('\n')+'\n'});
     }
     files.push({name:'inventory.yml',content:'---\nall:\n  children:\n    oracle_'+operation+':\n      hosts:\n        oracle_db:\n          ansible_host: '+yaml(a.host)+'\n          ansible_user: '+yaml(a.sshUser)+'\n'});
     files.push({name:'host_vars/oracle_db.yml',content:'---\nalis_oracle_user: '+yaml(a.oracleUser)+'\nalis_become: '+String(a.sshUser!==a.oracleUser)+'\nalis_work_dir: '+yaml(a.workDir)+'\nalis_python: '+yaml(a.python)+'\nansible_python_interpreter: '+yaml(a.python)+'\nalis_timeout: '+a.timeout+'\nalis_poll_interval: '+a.poll+'\nalis_resume: false\n'});
-    files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'files/autoupgrade.home.cfg',content:homeConfig},{name:'files/autoupgrade.deploy.cfg',content:deployConfig},{name:'alis-runbook.md',content:W.markdown(runProject,profile)+(state.adjustments.length?'\n## Imported configuration conversion\n\nThe executed patch configurations use the adaptations documented in config-adjustments.md. The unchanged input is retained as original-autoupgrade.cfg; it is not executed.\n':'')});
+    const docProject=C.clone(requested);docProject.mode='deploy';docProject.fileName='autoupgrade.cfg';
+    files.push({name:'files/plan.json',content:JSON.stringify(plan,null,2)+'\n'},{name:'files/autoupgrade.cfg',content:config},{name:'files/autoupgrade.home.cfg',content:homeConfig},{name:'files/autoupgrade.download.cfg',content:downloadConfig},{name:'files/autoupgrade.deploy.cfg',content:deployConfig},{name:'alis-runbook.md',content:W.markdown(docProject,profile,{bundle:true})+(state.adjustments.length?'\n## Imported configuration conversion\n\nThe executed patch configurations use the adaptations documented in config-adjustments.md. The unchanged input is retained as original-autoupgrade.cfg; it is not executed.\n':'')});
     const actions=['prepare','analyze','download','create_home','deploy','verify'];
     for(const action of actions)files.push({name:action+'.yml',content:playbook(action,operation)});
-    files.push({name:operation+'.yml',content:'---\n# Complete '+operation+' cycle; each stage must succeed before the next starts.\n'+actions.map(action=>'- ansible.builtin.import_playbook: '+action+'.yml\n  vars:\n    alis_cycle: true').join('\n')+'\n'});
+    const cycle='---\n# Complete '+operation+' cycle; each stage must succeed before the next starts.\n'+actions.map(action=>'- ansible.builtin.import_playbook: '+action+'.yml\n  vars:\n    alis_cycle: true').join('\n')+'\n';
+    files.push({name:'remote.yml',content:cycle},{name:operation+'.yml',content:controller?'---\n- ansible.builtin.import_playbook: local.yml\n- ansible.builtin.import_playbook: transfer.yml\n- ansible.builtin.import_playbook: remote.yml\n':cycle});
+    if(controller)files.find(f=>f.name==='test-local.yml').content=files.find(f=>f.name==='test-local.yml').content.replace('import_playbook: '+operation+'.yml','import_playbook: remote.yml');
     return files.sort((x,y)=>x.name.localeCompare(y.name));
   }
   function crc32(bytes) {

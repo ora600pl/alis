@@ -170,6 +170,62 @@ def patch_sql(containers):
     return sql + 'exit\n'
 
 
+def verify_download(folder, target=None, pinned_ru='', platform='', expected_folder=None):
+    folder = Path(folder)
+    manifest = folder / 'patches_info.json'
+    require(manifest.is_file() and not manifest.is_symlink(), 'Missing download metadata: ' + str(manifest))
+    metadata = json.loads(manifest.read_text(encoding='utf-8'))
+    require(isinstance(metadata, dict) and str(metadata.get('patchFolder')) == str(expected_folder or folder) and isinstance(metadata.get('patches'), list) and metadata['patches'] and all(isinstance(patch, dict) for patch in metadata['patches']), 'Unknown or mismatched download metadata.')
+    if target:
+        releases = []
+        platforms = {'LINUX.X64': 'Linux x86-64', 'ARM.X64': 'Linux ARM 64-bit'}
+        for patch in metadata['patches']:
+            description = str(patch.get('description', ''))
+            release = str(patch.get('releaseUpdate', ''))
+            if not release and re.search(r'(?:database release update|(?:db )?gold image)', description, re.I):
+                match = re.search(r'(?<![0-9.])((?:19|21|23|26)\.\d+(?:\.\d+)*)', description)
+                release = match[1] if match else ''
+            if release:
+                require(re.fullmatch(r'\d+(?:\.\d+)+', release), 'Unknown database media release: ' + release)
+                major = '23' if release.split('.')[0] == '26' else release.split('.')[0]
+                require(major == str(target), 'Downloaded database media is release ' + release + ', expected target ' + str(target) + '. Use the target-only download configuration and a dedicated media directory.')
+                if platform and patch.get('platform'):
+                    actual = str(patch['platform']).lower()
+                    expected = platforms.get(platform.upper(), platform).lower()
+                    require(actual == expected or platform.upper() == 'ARM.X64' and 'linux' in actual and ('arm' in actual or 'aarch64' in actual), 'Downloaded database media is for another platform: ' + str(patch['platform']))
+                releases.append(release)
+        require(releases, 'Download metadata does not identify database media for target ' + str(target) + '. Tool downloads alone are insufficient.')
+        if pinned_ru:
+            require(any(re.fullmatch(re.escape(pinned_ru) + r'(?:\.\d+)*', value) for value in releases), 'Download metadata does not contain the pinned target RU ' + pinned_ru)
+    files = {}
+    for patch in metadata['patches']:
+        require(isinstance(patch.get('files'), list) and patch['files'], 'Download metadata has no files.')
+        for entry in patch['files']:
+            require(isinstance(entry, dict), 'Unknown download file metadata.')
+            name = entry.get('name', '')
+            require(isinstance(name, str) and name and Path(name).name == name and name not in ('.', '..'), 'Invalid media filename in download metadata.')
+            path = folder / name
+            require(path.is_file() and not path.is_symlink() and path.stat().st_size > 0, 'Missing downloaded file: ' + name)
+            if 'size' in entry:
+                require(path.stat().st_size == entry['size'], 'Downloaded file size differs: ' + name)
+            checksum = digest(path)
+            expected = entry.get('checksum-256')
+            if expected:
+                require(isinstance(expected, str) and re.fullmatch(r'[a-fA-F0-9]{64}', expected), 'Unknown SHA-256 checksum for ' + name)
+                require(checksum.lower() == expected.lower(), 'Downloaded file checksum differs: ' + name)
+            else:
+                expected = entry.get('checksum')
+                require(isinstance(expected, str) and re.fullmatch(r'[a-fA-F0-9]{40}', expected), 'No published checksum for ' + name + '; review the native download before using these files.')
+                with open(path, 'rb') as stream:
+                    sha1 = hashlib.sha1()
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                        sha1.update(chunk)
+                require(sha1.hexdigest().lower() == expected.lower(), 'Downloaded file checksum differs: ' + name)
+            files[name] = checksum
+    require(any(name.lower().endswith('.zip') for name in files), 'No software ZIP exists in the media directory.')
+    return files
+
+
 class Runner:
     def __init__(self, args):
         self.args = args
@@ -195,6 +251,9 @@ class Runner:
         self.deploy_config = self.root / 'autoupgrade.deploy.cfg' if self.plan.get('deploy_config_separate') else self.config
         if self.plan.get('deploy_config_sha256'):
             require(not self.deploy_config.is_symlink() and digest(self.deploy_config) == self.plan['deploy_config_sha256'], 'Deployment configuration changed. Use the original bundle to resume.')
+        self.download_config = self.root / 'autoupgrade.download.cfg' if self.plan.get('download_config_sha256') else self.home_config if self.upgrade else self.config
+        if self.plan.get('download_config_sha256'):
+            require(not self.download_config.is_symlink() and digest(self.download_config) == self.plan['download_config_sha256'], 'Download configuration changed. Use the original bundle.')
         self.state_path = self.root / 'state.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {'plan_sha256': self.plan_hash, 'operations': {}}
         require(self.state.get('plan_sha256') == self.plan_hash, 'This directory belongs to another patch cycle.')
@@ -260,6 +319,9 @@ class Runner:
             return self.verify()
         self.require_staged_upgrade_home()
         self.validate_jar()
+        if self.plan.get('media_platform') and not self.simulation:
+            expected = {'LINUX.X64': ('x86_64', 'amd64'), 'ARM.X64': ('aarch64', 'arm64')}.get(self.plan['media_platform'].upper())
+            require(expected and os.uname().machine.lower() in expected, 'Selected media architecture does not match the target host.')
         database = self.database(self.plan['source_home'], 'database-before')
         if self.upgrade:
             containers = database.get('ALIS_CONTAINER', [])
@@ -359,43 +421,28 @@ class Runner:
         return {'changed': True, 'message': 'Existing create_home reports, inventory and source database verified. Home creation was not rerun.', 'evidence': evidence, 'home': home}
 
     def media(self, started=None, previous=None):
+        if self.plan.get('controller_download'):
+            receipt = self.root / 'transferred.json'
+            require(receipt.is_file() and not receipt.is_symlink(), 'Run transfer.yml successfully before the remote cycle.')
+            transferred = json.loads(receipt.read_text())
+            require(transferred.get('plan_sha256') == self.plan_hash and transferred.get('files'), 'Transfer belongs to another plan.')
+            for item in transferred['files']:
+                path = Path(item['dest'])
+                require(path.is_file() and not path.is_symlink() and digest(path) == item['sha256'], 'Transferred file changed: ' + str(path))
         folder = Path(self.plan['folder'])
         manifest = folder / 'patches_info.json'
         files = {}
-        if self.plan['download']:
+        if self.plan['download'] or self.plan.get('controller_download'):
             require(manifest.is_file() and not manifest.is_symlink(), 'Missing download metadata: ' + str(manifest))
-            if started is not None:
+            if started is not None and self.plan['download']:
                 require(manifest.stat().st_mtime >= started, 'Stale download metadata; this download was not certified.')
             metadata = json.loads(manifest.read_text(encoding='utf-8'))
             save(self.results / 'download-patches_info.json', metadata)
             require(isinstance(metadata, dict) and metadata.get('patchFolder') == str(folder) and isinstance(metadata.get('patches'), list) and metadata['patches'] and all(isinstance(patch, dict) for patch in metadata['patches']), 'Unknown or mismatched download metadata.')
             ru = self.plan.get('pinned_ru')
-            if ru:
+            if ru and not self.plan.get('require_target_media'):
                 require(any(re.fullmatch(re.escape(ru) + r'(?:\.\d+)*', str(patch.get('releaseUpdate', ''))) for patch in metadata['patches']), 'Download metadata does not contain the pinned RU ' + ru)
-            for patch in metadata['patches']:
-                require(isinstance(patch.get('files'), list) and patch['files'], 'Download metadata has no files.')
-                for entry in patch['files']:
-                    require(isinstance(entry, dict), 'Unknown download file metadata.')
-                    name = entry.get('name', '')
-                    require(isinstance(name, str) and name and Path(name).name == name and name not in ('.', '..'), 'Invalid media filename in download metadata.')
-                    path = folder / name
-                    require(path.is_file() and not path.is_symlink() and path.stat().st_size > 0, 'Missing downloaded file: ' + name)
-                    if 'size' in entry:
-                        require(path.stat().st_size == entry['size'], 'Downloaded file size differs: ' + name)
-                    checksum = digest(path)
-                    expected = entry.get('checksum-256')
-                    if expected:
-                        require(isinstance(expected, str) and re.fullmatch(r'[a-fA-F0-9]{64}', expected), 'Unknown SHA-256 checksum for ' + name)
-                        require(checksum.lower() == expected.lower(), 'Downloaded file checksum differs: ' + name)
-                    else:
-                        expected = entry.get('checksum')
-                        require(isinstance(expected, str) and re.fullmatch(r'[a-fA-F0-9]{40}', expected), 'No published checksum for ' + name + '; review the native download before using these files.')
-                        with open(path, 'rb') as stream:
-                            sha1 = hashlib.sha1()
-                            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                                sha1.update(chunk)
-                        require(sha1.hexdigest().lower() == expected.lower(), 'Downloaded file checksum differs: ' + name)
-                    files[name] = checksum
+            files = verify_download(folder, self.plan.get('target_version') if self.plan.get('require_target_media') else None, self.plan.get('pinned_ru', ''), self.plan.get('media_platform', ''))
         else:
             # Offline inputs may be local Gold Images without Oracle download metadata.
             for path in sorted(folder.iterdir()):
@@ -478,6 +525,8 @@ class Runner:
             save(self.state_path, self.state)
             return {'changed': False, 'message': 'Home creation had completed; verification now passed without another installation.'}
         config = self.deploy_config if mode == 'deploy' else self.home_config if (mode == 'create_home' and self.plan.get('home_config_separate') or self.upgrade and mode == 'download') else self.config
+        if mode == 'download':
+            config = self.download_config
         flags = [self.plan['java'], '-jar', self.plan['jar']]
         if not self.upgrade or mode in ('download', 'create_home'):
             flags += ['-patch']

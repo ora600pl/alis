@@ -736,3 +736,19 @@ class NativeUpgradeReportTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ControllerRemoteTests(RunnerHarness):
+    operation = 'upgrade'
+
+    def test_offline_remote_cycle_requires_transfer_and_never_invokes_native_download(self):
+        import zipfile
+        self.change_plan(controller_download=True, download=False, media_platform='LINUX.X64')
+        media=self.root/'media/home.zip'
+        with zipfile.ZipFile(media,'w') as archive:archive.writestr('SIMULATION.txt','offline media')
+        metadata={'patchFolder':str(self.root/'media'),'patches':[{'releaseUpdate':'23.26.3.0.0','platform':'Linux x86-64','files':[{'name':media.name,'size':media.stat().st_size,'checksum-256':hashlib.sha256(media.read_bytes()).hexdigest()}]}]}
+        (self.root/'media/patches_info.json').write_text(json.dumps(metadata))
+        self.failure('prepare','Run transfer.yml successfully')
+        receipt={'plan_sha256':hashlib.sha256(self.plan.read_bytes()).hexdigest(),'files':[{'dest':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()} for path in (media,self.root/'media/patches_info.json',self.root/'simulated.jar')]}
+        (self.run/'transferred.json').write_text(json.dumps(receipt))
+        self.success('prepare');self.software();self.success('deploy');self.success('verify')
+        self.assertEqual(self.modes(),['analyze','create_home','deploy'])

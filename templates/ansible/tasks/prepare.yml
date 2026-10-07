@@ -18,13 +18,13 @@
     dest: "{{ alis_work_dir }}/{{ item }}"
     force: false
     mode: '0600'
-  loop: [plan.json, autoupgrade.cfg, autoupgrade.home.cfg, autoupgrade.deploy.cfg, runner.py]
+  loop: [plan.json, autoupgrade.cfg, autoupgrade.home.cfg, autoupgrade.deploy.cfg, autoupgrade.download.cfg, runner.py]
 
 - name: Read staged checksums
   ansible.builtin.stat:
     path: "{{ alis_work_dir }}/{{ item }}"
     checksum_algorithm: sha256
-  loop: [plan.json, autoupgrade.cfg, autoupgrade.home.cfg, autoupgrade.deploy.cfg, runner.py]
+  loop: [plan.json, autoupgrade.cfg, autoupgrade.home.cfg, autoupgrade.deploy.cfg, autoupgrade.download.cfg, runner.py]
   register: alis_staged
 
 - name: Keep configuration and runner unchanged for this cycle

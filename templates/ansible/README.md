@@ -1,42 +1,48 @@
-# ALIS + Ansible
+# ALIS Ansible bundle
 
-This bundle automates one local Linux single-instance database. Run Ansible on your Mac/Linux controller; the Oracle server is reached over SSH. Review `inventory.yml`, `host_vars/oracle_db.yml`, the configuration files in `files/` and `alis-runbook.md`.
+One Linux single-instance database: out-of-place patching or whole-database upgrade. Review `inventory.yml`, `host_vars/oracle_db.yml` and the configurations in `files/`. Migration, non-CDB-to-PDB conversion, selected PDBs, RAC and Data Guard require separate automation.
 
-## Install and test
-
-Use Python 3.12+ on the controller, extract the ZIP and enter `alis-ansible`:
+## Install and test without Oracle
 
 ```sh
-python3 -m venv ~/.venvs/alis-ansible
-source ~/.venvs/alis-ansible/bin/activate
-python3 -m pip install 'ansible-core>=2.21,<2.22'
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install 'ansible-core>=2.21,<2.22'
 ansible-playbook test-local.yml --syntax-check
 ansible-playbook test-local.yml
 ```
 
-Expect `failed=0`, `unreachable=0`. The simulator uses fake tools in a temporary directory; it never contacts Oracle, MOS or your server. It explicitly approves its simulated deploy. Results: `artifacts/localhost/`. For a macOS locale error, run `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` in this Terminal session.
+Expect `failed=0`, `unreachable=0`. Fake tools run locally; no SSH, Oracle or MOS connection is made. On macOS, a locale error is resolved for this terminal with `export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`.
 
-## Prepare and run
+## Run
 
-- In ALIS, select **Patch existing databases** or **Upgrade a database**, then **Linux / Oracle Linux 9** and **Single instance**. Other migration, conversion, selected-PDB, cluster and Data Guard workflows require separate automation.
-- Prepare SSH, server Python 3.9+, supported Java, the exact profile JAR at the `jar` path in `files/plan.json`, installation prerequisites, backups and required root-script execution. Use distinct source/target homes and dedicated working/log directories for each cycle. Prepare an auto-login wallet interactively with the runbook if downloading media; keep secrets out of YAML/JSON.
-- **Patch:** `ansible-playbook patch.yml` runs prepare → analyze → download → create_home → **approval** → deploy → verify. Pin a specific RU in the patch expression, not the directory name. Imported `create_oracle_home` becomes explicit patch home preparation; review `config-adjustments.md` when supplied.
-- **Upgrade:** `ansible-playbook upgrade.yml` runs prepare → analyze → download → create_home → **approval** → deploy → verify. Source release must be 12.2 or later, and target release must be higher. With `create_oracle_home=YES`, software is downloaded and installed before approval; deploy uses that existing home. Already prepared homes skip software phases. Non-CDB to PDB conversion is outside this exporter.
-
-Add `-K` if sudo needs a password. Before an actual deploy or deploy resume, review the collected analyze reports and type **YES** at the maintenance-window prompt. Any other answer stops before database changes. Approval is not remembered for a later run. For a window already approved by your automation process:
+Prepare SSH, server Python 3.9+, supported Java, installation prerequisites, backups and required root-script execution. Use separate source/target homes and dedicated JAR, wallet, media, work and log paths for this cycle. Keep the bundle's `ansible.cfg` enabled and run from its directory.
 
 ```sh
-ansible-playbook __ALIS_OPERATION__.yml -e alis_approve_deploy=true
+ansible-playbook __ALIS_OPERATION__.yml
 ```
 
-Upgrade software phases use `autoupgrade.home.cfg` with `-patch`. Its `download=NO` keeps installation offline; explicit `-mode download` still downloads the media first. Database deploy uses `autoupgrade.deploy.cfg` without `-patch`, with download/home creation disabled. The original `autoupgrade.cfg` is retained for analysis. Existing target homes skip software preparation.
+Add `-K` if sudo requires a password. The remote sequence is **analyze → download / verify media → create_home → maintenance-window approval → deploy → verify**. Type **YES** only after reviewing analysis, the prepared target home and backups. Already installed target homes skip software preparation. Pin an RU in the patch expression, not the home directory name.
 
-You can run the included stage playbooks separately. `deploy.yml` requires successful earlier phases and the same approval. `verify.yml` only checks a completed deployment. `--check` is rejected; use the simulator. `[ALIS]` updates show native stages and progress; unchanged operations get a heartbeat.
+## Workstation downloads and VPN
+
+In ALIS **Media**, choose **On this workstation (Ansible controller)** and explicitly select the **target architecture**. Install Java locally. The command above first downloads the pinned JAR, opens the native MOS wallet loader (save **YES**, auto-login **SHARED**) and downloads target-release media. It then pauses so you can connect VPN and approve transfer of the JAR, AutoUpgrade wallet and complete media/metadata. Server phases use `download=NO`. Database TDE wallets are separate.
+
+To split the network stages:
+
+```sh
+ansible-playbook local.yml
+# Connect VPN when ready.
+ansible-playbook transfer.yml
+ansible-playbook remote.yml
+```
+
+Files remain in `controller/`; a completed local stage can be verified offline. Transfer preserves existing files and refuses mismatches. For a different local Java use `-e alis_controller_java=/path/to/java`. If Oracle serves a different JAR than the selected profile, supply that exact build in `controller/autoupgrade.jar` or export with the matching reviewed profile. For **server downloads**, prepare the pinned JAR and auto-login wallet on the server yourself.
 
 ## Results and resume
 
-Read `artifacts/oracle_db/` and the native logs: reports are under `global_log_dir/cfgtoollogs/patch/auto/status/` for patching or `global_log_dir/cfgtoollogs/upgrade/auto/status/` for upgrades. Separate upgrade home preparation uses `global_log_dir/software/cfgtoollogs/patch/auto/status/`. Completion requires successful native reports/checklists, the active target home and successful local SQL patch registries in every container, including `PDB$SEED`. Upgrade also verifies container preservation and core component versions/statuses. Java exit code zero alone is insufficient. Complete application/service checks separately.
+Read `artifacts/oracle_db/` and the native logs. `[ALIS]` updates report remote progress. Completion checks native reports, target inventory and SQL patch registries in every container, including `PDB$SEED`; upgrade also checks container/component preservation. Java exit code zero alone is insufficient. Complete application/service checks separately.
 
-After resolving a failure, keep the **original bundle, JAR, configuration and recovery state** and run `ansible-playbook __ALIS_OPERATION__.yml -e alis_resume=true`. Completed stages are skipped. If native deploy completed but verification failed, fix the cause and run `verify.yml`; deployment is not repeated and no approval is needed. Do not replace an active bundle or clear recovery data for routine failures.
+After resolving a native failure, keep the original bundle, JAR, configuration and recovery state, then run `ansible-playbook __ALIS_OPERATION__.yml -e alis_resume=true`. Completed phases are skipped. If native deploy completed and only verification failed, fix the cause and run `verify.yml`; deploy is not repeated. For a preapproved unattended run, `-e alis_approve_transfer=true` approves transfer and `ansible-playbook __ALIS_OPERATION__.yml -e alis_approve_deploy=true` separately approves database changes. Interactive approvals are not remembered. Wallet setup remains interactive.
 
-Validated with ansible-core 2.21.4 and fake tools; no live Oracle upgrade was performed. Detailed manual commands and sources: `alis-runbook.md`.
+Separate stage playbooks are included. `--check` cannot simulate Oracle; use `test-local.yml`. Detailed manual commands, configuration roles and sources: `alis-runbook.md`. Validated with ansible-core 2.21.4, isolated JAR probes and fake tools; no live Oracle deployment was performed.

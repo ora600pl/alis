@@ -68,7 +68,7 @@ The mode is a command-line choice, separate from `.cfg` content. ALIS preserves 
 
 For staged remote upgrade, `target_is_remote=YES` does not move data. The deploy runbook separates source analyze/fixups, the administrator's backup/restore or transport procedure, and target upgrade. Recheck paths, environment and database startup on each host. [Oracle parameter reference](https://docs.oracle.com/en/database/oracle/oracle-database/26/upgrd/upgrade-parameters-autoupgrade-config-file.html).
 
-The Ansible bundle uses **prepare → analyze → review → deploy → verify**. Prepare stages files and checks prerequisites; analyze is the first database phase. The runner rejects deploy without verified analysis for the exact immutable bundle. Use the playbooks for automation; the native commands in the bundled runbook describe the manual path and should not also be executed as a second patch cycle. [Ansible instructions](../templates/ansible/README.md).
+The Ansible bundle uses **prepare → analyze → download → create_home → maintenance-window approval → deploy → verify**. Prepare stages files and checks prerequisites; analyze is the first database phase. The runner rejects deploy without verified analysis and a prepared target home for the exact immutable bundle. Workstation downloads add local staging and a separate VPN/transfer approval before the remote cycle; remote download then verifies the delivered media. See [controller downloads](CONTROLLER-DOWNLOADS.md). Use the playbooks for automation; the native commands in the bundled runbook describe the manual path and should not also be executed as a second patch cycle. [Ansible instructions](../templates/ansible/README.md).
 
 ## Clone timing and source preparation
 

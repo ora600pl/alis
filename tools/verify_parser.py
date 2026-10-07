@@ -39,7 +39,7 @@ if(profile.behavior?.strictPatchSyntax){
   Object.assign(p.jobs[0].values,{create_oracle_home:'YES',folder:'/media',gold_image:'YES','gold_image.security_patch_level':'HIGH'});
   if(C.validate(p,profile).some(i=>i.level==='error'))throw new Error('Invalid integrated home image');
   cases.push({name:'upgrade-home-image.cfg',text:C.renderConfig(p),expected:Object.fromEntries(C.entries(p))});
-  p.mode='deploy';const prepared=W.upgradePreparation(p,profile);
+  p.mode='deploy';const prepared={...W.upgradePreparation(p,profile),download:W.downloadProject(p,profile)};
   for(const [name,item] of Object.entries(prepared)){
     if(C.validate(item,profile).some(i=>i.level==='error'))throw new Error('Invalid staged upgrade '+name);
     cases.push({name:'upgrade-staged-'+name+'.cfg',text:C.renderConfig(item),expected:Object.fromEntries(C.entries(item))});

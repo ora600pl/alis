@@ -33,7 +33,7 @@ for(const scenario of Object.keys(C.SCENARIOS))test('complete example and projec
   const p=example(scenario);assert.deepEqual(errors(p),[]);
   assert.deepEqual(C.loadProject(JSON.stringify(p),{[profile.id]:profile}),p);
   const r=W.runbook(p,profile);assert(r.steps.length>=4);assert.equal(r.artifacts[0].content,C.renderConfig(p));
-  for(const a of r.artifacts){const parsed=C.parseConfig(a.content,profile,a.type==='source configuration'?'upgrade':p.operation).project;assert.deepEqual(Object.fromEntries(C.entries(parsed)),Object.fromEntries(C.entries(a.type==='source configuration'?W.sourceProject(p,profile):p)));}
+  for(const a of r.artifacts){if(a.type==='download configuration'){assert(!a.content.includes('.source_home='));assert(!a.content.includes('.sid='));assert(a.content.includes('.target_version='));continue;}const parsed=C.parseConfig(a.content,profile,a.type==='source configuration'?'upgrade':p.operation).project;assert.deepEqual(Object.fromEntries(C.entries(parsed)),Object.fromEntries(C.entries(a.type==='source configuration'?W.sourceProject(p,profile):p)));}
 });
 for(const scenario of Object.keys(C.SCENARIOS).filter(s=>C.SCENARIOS[s].group!=='Prepare software'))for(const mode of C.modesFor(scenario))test('stage-specific runbook: '+scenario+' / '+mode,()=>{
   const p=example(scenario);p.mode=mode;assert.deepEqual(errors(p),[]);

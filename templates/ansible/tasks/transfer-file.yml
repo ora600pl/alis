@@ -1,0 +1,29 @@
+- name: Create a private destination directory
+  ansible.builtin.file:
+    path: "{{ alis_transfer_file.dest | dirname }}"
+    state: directory
+    mode: '0700'
+
+- name: Copy without replacing files from an existing cycle
+  ansible.builtin.copy:
+    src: "{{ alis_transfer_file.src }}"
+    dest: "{{ alis_transfer_file.dest }}"
+    force: false
+    mode: "{{ alis_transfer_file.mode }}"
+  no_log: true
+
+- name: Verify the transferred file
+  ansible.builtin.stat:
+    path: "{{ alis_transfer_file.dest }}"
+    checksum_algorithm: sha256
+  register: alis_transferred
+  no_log: true
+
+- name: Require identical files at the destination
+  ansible.builtin.assert:
+    quiet: true
+    that:
+      - alis_transferred.stat.isreg | default(false)
+      - not (alis_transferred.stat.islnk | default(false))
+      - alis_transferred.stat.checksum | default('') == alis_transfer_file.sha256
+    fail_msg: A destination file differs. Existing files were preserved. Use dedicated JAR, media, wallet, work and log paths for this cycle; do not overwrite files used by another run.

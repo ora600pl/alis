@@ -1,0 +1,62 @@
+---
+- name: Verify local files and wait for the VPN switch
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Verify the local manifest before any server connection
+      alis_controller:
+        action: verify
+        bundle: "{{ playbook_dir }}"
+        root: "{{ alis_local_dir | default(playbook_dir + '/controller') }}"
+
+    - name: Connect VPN and approve the transfer
+      ansible.builtin.pause:
+        prompt: >-
+          Local downloads are verified. Connect VPN now if necessary.
+          Transfer AutoUpgrade, the SHARED AutoUpgrade wallet and all media to the inventory host?
+          This does not approve database deployment. Type YES to transfer; any other answer stops
+      register: alis_transfer_answer
+      when: not (alis_approve_transfer | default(false) | bool)
+
+    - name: Require explicit transfer approval
+      ansible.builtin.assert:
+        that: (alis_approve_transfer | default(false) | bool) or (alis_transfer_answer.user_input | default('') | trim == 'YES')
+        fail_msg: Transfer was not approved. Local files are retained; run transfer.yml after connecting VPN.
+
+    - name: Remember approval for this invocation only
+      ansible.builtin.set_fact:
+        alis_transfer_ready: true
+        alis_transfer_manifest: "{{ lookup('ansible.builtin.file', (alis_local_dir | default(playbook_dir + '/controller')) + '/transfer.json') | from_json }}"
+
+- name: Transfer verified software to the isolated server
+  hosts: "{{ alis_hosts | default('oracle___ALIS_OPERATION__') }}"
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  become: "{{ alis_become | bool }}"
+  become_user: "{{ alis_oracle_user }}"
+  tasks:
+    - name: Require the approved manifest for this exact bundle
+      ansible.builtin.assert:
+        that:
+          - hostvars['localhost'].alis_transfer_ready | default(false) | bool
+          - hostvars['localhost'].alis_transfer_manifest.plan_sha256 == (lookup('ansible.builtin.file', playbook_dir + '/files/plan.json', rstrip=false) | hash('sha256'))
+
+    - name: Stage immutable cycle files before transferring software
+      ansible.builtin.include_tasks: tasks/prepare.yml
+
+    - name: Transfer all media, metadata, JAR and AutoUpgrade wallet files
+      ansible.builtin.include_tasks: tasks/transfer-file.yml
+      loop: "{{ hostvars['localhost'].alis_transfer_manifest.files }}"
+      loop_control:
+        loop_var: alis_transfer_file
+        label: "{{ alis_transfer_file.dest | basename }}"
+
+    - name: Retain transfer verification for the remote cycle
+      ansible.builtin.copy:
+        content: "{{ hostvars['localhost'].alis_transfer_manifest | to_nice_json }}"
+        dest: "{{ alis_work_dir }}/transferred.json"
+        force: false
+        mode: '0600'
